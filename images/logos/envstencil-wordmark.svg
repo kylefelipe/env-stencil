@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1500 420">
+  <defs>
+    <linearGradient id="g2" x1="55" y1="40" x2="385" y2="385" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#31D6A3"/>
+      <stop offset="1" stop-color="#16A7C9"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1500" height="420" rx="72" fill="#101722"/>
+
+  <g transform="translate(34 28) scale(.71)">
+    <path d="M151 111h145l70 70v206c0 18-15 33-33 33H151c-18 0-33-15-33-33V144c0-18 15-33 33-33z"
+          fill="#F7FAFC"/>
+    <path d="M296 111l70 70h-42c-16 0-28-13-28-28z" fill="#DCE6EC"/>
+    <circle cx="164" cy="231" r="10" fill="url(#g2)"/>
+    <rect x="184" y="220" width="72" height="22" rx="11" fill="#101722"/>
+    <rect x="270" y="220" width="54" height="22" rx="7" fill="#C7D2DA"/>
+    <circle cx="164" cy="284" r="10" fill="url(#g2)"/>
+    <rect x="184" y="273" width="91" height="22" rx="11" fill="#101722"/>
+    <rect x="289" y="273" width="35" height="22" rx="7" fill="#C7D2DA"/>
+    <circle cx="164" cy="337" r="10" fill="url(#g2)"/>
+    <rect x="184" y="326" width="63" height="22" rx="11" fill="#101722"/>
+    <rect x="261" y="326" width="63" height="22" rx="7" fill="url(#g2)"/>
+    <path d="M344 246h36v22h-36zm0 53h36v22h-36zm0 53h36v22h-36z" fill="url(#g2)"/>
+    <path d="M359 231v158" stroke="url(#g2)" stroke-width="12" stroke-linecap="round"/>
+  </g>
+
+  <text x="405" y="245" fill="#F7FAFC"
+        font-family="DejaVu Sans, Arial, sans-serif"
+        font-size="126" font-weight="700" letter-spacing="-4">Env</text>
+  <text x="625" y="245" fill="url(#g2)"
+        font-family="DejaVu Sans, Arial, sans-serif"
+        font-size="126" font-weight="700" letter-spacing="-4">Stencil</text>
+
+  <text x="412" y="307" fill="#A9B7C2"
+        font-family="DejaVu Sans Mono, monospace"
+        font-size="28" letter-spacing="3">SAFE .ENV → .ENV.EXAMPLE</text>
+</svg>
