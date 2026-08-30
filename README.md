@@ -1,3 +1,11 @@
+<p align="center">
+  <img src="images/logos/envstencil-wordmark.svg" alt="EnvStencil" width="320">
+</p>
+
+<p align="center">
+  Gere um <code>.env.example</code> seguro a partir do seu <code>.env</code>, automaticamente.
+</p>
+
 # EnvStencil
 
 Sempre quando estamos desenvolendo, é comum a gente criar um arquivo `.env` com as variáveis de ambiente necessárias e depois ter de gerar um arquivo `.env.example` para que outros desenvolvedores possam criar o seu próprio `.env` a partir dele.
@@ -8,9 +16,17 @@ Caso o arquivo `.env` contenha variáveis que não precisam ser sobreescritas no
 
 ## Instalação
 
-```bash
-pip install -e .
-```
+- Utilizando o poetry
+
+    ```bash
+    poetry install
+    ```
+
+- Utilizando o pip
+
+    ```bash
+    pip install -e .
+    ```
 
 ## Uso
 
