@@ -1,0 +1,18 @@
+# Ambientes virtuais / caches
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Build / distribuição
+build/
+dist/
+*.egg-info/
+
+# Arquivos .env reais — NUNCA commitar (ver CLAUDE.md, regra 1)
+.env
+.env.*
+!.env.example
