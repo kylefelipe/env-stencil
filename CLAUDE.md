@@ -41,7 +41,7 @@
 - Docstrings públicas em estilo Google (`Args:`/`Returns:`/`Raises:`/`Attributes:`), com todo parâmetro anotado documentado — são renderizadas por `mkdocstrings` e qualquer descompasso quebra `mkdocs build --strict`
 - Texto `help=` de opção Click sem `<...>`: o `mkdocs-click` renderiza como HTML e engole o trecho entre `<>` (referir o argumento como `SOURCE`, não `<source>`)
 - Ao adicionar/alterar flag do CLI: a tabela de opções em `docs/cli_usage.md` é gerada por `mkdocs-click`, mas atualizar a assinatura na seção 2, os exemplos em `docs/cli_usage.md` e o `README.md`
-- Convenções de contribuidor também resumidas em `docs/contributing.md` — manter as duas em sincronia
+- Guia de contribuidor: `docs/contributing.md` é a versão completa (no site/RTD); `CONTRIBUTING.md` na raiz é um stub curto que o GitHub exibe e aponta pro RTD. Manter os três (com este arquivo) coerentes
 
 ## 5. O que evitar
 - Não usar `eval`/`exec` para parsear valores do `.env`
