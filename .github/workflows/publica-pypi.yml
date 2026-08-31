@@ -4,6 +4,9 @@ on:
   release:
     types: [published]
 
+permissions:
+  contents: read
+
 jobs:
   build:
     name: Build package
@@ -13,13 +16,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Install Poetry
+        run: pipx install poetry
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: poetry
 
-      - name: Install Poetry
-        run: pipx install poetry
+      - name: Install dependencies
+        run: poetry install --with dev
+
+      - name: Test
+        run: poetry run pytest -q
 
       - name: Build
         run: poetry build
@@ -49,5 +59,7 @@ jobs:
           name: python-package-distributions
           path: dist/
 
+      # Pinado numa release; conferir a última em
+      # https://github.com/pypa/gh-action-pypi-publish/releases
       - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@v1.12.4
