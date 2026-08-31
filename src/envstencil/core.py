@@ -42,7 +42,7 @@ def _split_inline_comment(value: str) -> tuple[str, str]:
             quote = ch
         elif ch == "#" and (i == 0 or value[i - 1].isspace()):
             head = value[:i].rstrip()
-            return head, value[len(head):]
+            return head, value[len(head) :]
         i += 1
     return value, ""
 
@@ -68,7 +68,9 @@ class EnvLine:
     key: str | None = None
     value: str | None = None
     prefix: str = ""
-    inline_comment: str = ""  # trailing `# ...` on a pair (with its leading space)
+    inline_comment: str = (
+        ""  # trailing `# ...` on a pair (with its leading space)
+    )
     keep: bool = False  # pair marked with `# envstencil:keep`
 
 
