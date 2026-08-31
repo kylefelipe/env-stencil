@@ -1,13 +1,13 @@
 [build-system]
-requires = ["setuptools>=68.0"]
-build-backend = "setuptools.build_meta"
+requires = ["poetry-core>=2.0"]
+build-backend = "poetry.core.masonry.api"
 
 [project]
 name = "envstencil"
 version = "0.1.0"
 description = "Generate a safe .env.example stencil from your .env files"
 readme = "README.md"
-requires-python = ">=3.10, <4"
+requires-python = ">=3.10,<4"
 license = { text = "MIT" }
 authors = [
     { name = "Kyle Felipe", email = "kylefelipe@gmail.com" }
@@ -15,6 +15,10 @@ authors = [
 keywords = ["dotenv", "env", "environment", "template", "security"]
 classifiers = [
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Environment :: Console",
@@ -23,16 +27,11 @@ dependencies = [
     "click>=8.0",
 ]
 
-[project.optional-dependencies]
-dev = [
-    "pytest>=7.0"
-]
-
 [project.scripts]
 envstencil = "envstencil.cli:main"
 
-[tool.setuptools.packages.find]
-where = ["src"]
+[tool.poetry]
+packages = [{ include = "envstencil", from = "src" }]
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.0.0"
@@ -45,3 +44,14 @@ taskipy = "^1.14.1"
 mkdocs-material = "^9.7.7"
 mkdocstrings = "^1.0.6"
 mkdocstrings-python = "^2.0.7"
+
+[tool.isort]
+profile = "black"
+line_length = 79
+
+[tool.taskipy.tasks]
+test = "pytest -v"
+cov = "pytest --cov=envstencil --cov-report=term-missing"
+lint = "blue --check . && isort --check ."
+fmt = "isort . && blue ."
+docs = "mkdocs serve"

@@ -67,17 +67,21 @@ STRIPE_SECRET_KEY=your_value_here
 
 ## Desenvolvimento
 
-- Utilizando o poetry (2.0+)
+Requer **Poetry 2.0+**. Os grupos `dev` (testes, lint) e `doc` são
+instalados por padrão:
 
-    ```bash
-    # instala o projeto + o extra "dev" (pytest)
-    poetry install --extras dev
-    poetry run pytest
-    ```
+```bash
+poetry install
+```
 
-- Utilizando o pip
+Tarefas (via [taskipy](https://github.com/taskipy/taskipy)):
 
-    ```bash
-    pip install -e ".[dev]"
-    pytest
-    ```
+```bash
+poetry run task test    # pytest -v
+poetry run task cov     # cobertura
+poetry run task lint    # blue --check + isort --check
+poetry run task fmt     # aplica isort + blue
+poetry run task docs    # mkdocs serve
+```
+
+Para pular a documentação: `poetry install --without doc`.
