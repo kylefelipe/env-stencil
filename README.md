@@ -67,10 +67,11 @@ STRIPE_SECRET_KEY=your_value_here
 
 ## Desenvolvimento
 
-- Utilizando o poetry
+- Utilizando o poetry (2.0+)
 
     ```bash
-    poetry install
+    # instala o projeto + o extra "dev" (pytest)
+    poetry install --extras dev
     poetry run pytest
     ```
 
