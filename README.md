@@ -13,6 +13,7 @@
 # EnvStencil
 
 [![Documentation Status](https://app.readthedocs.org/projects/env-stencil/badge/?version=latest)](https://env-stencil.readthedocs.io/en/latest/?badge=latest)
+[![CI](https://github.com/kylefelipe/env-stencil/actions/workflows/ci.yml/badge.svg)](https://github.com/kylefelipe/env-stencil/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/github/kylefelipe/env-stencil/graph/badge.svg?token=WTXDCQU4O2)](https://codecov.io/github/kylefelipe/env-stencil)
 
 Sempre quando estamos desenvolvendo, é comum a gente criar um arquivo `.env` com as variáveis de ambiente necessárias e depois ter de gerar um arquivo `.env.example` para que outros desenvolvedores possam criar o seu próprio `.env` a partir dele.
