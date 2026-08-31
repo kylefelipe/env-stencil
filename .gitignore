@@ -12,6 +12,12 @@ build/
 dist/
 *.egg-info/
 
+# Cobertura de testes
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
 # Arquivos .env reais — NUNCA commitar (ver CLAUDE.md, regra 1)
 .env
 .env.*
