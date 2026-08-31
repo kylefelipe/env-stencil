@@ -61,7 +61,17 @@ def _strip_keep_marker(comment: str) -> str:
 
 @dataclass
 class EnvLine:
-    """Represents one parsed line from a .env file."""
+    """Represents one parsed line from a .env file.
+
+    Attributes:
+        raw: The original line text, verbatim.
+        kind: One of `"comment"`, `"blank"`, `"pair"`, or `"unknown"`.
+        key: Variable name, when `kind == "pair"`.
+        value: Variable value without any inline comment, when `kind == "pair"`.
+        prefix: Leading `"export "` when present, otherwise `""`.
+        inline_comment: Trailing `# ...` of a pair, with its leading space.
+        keep: Whether the pair is flagged with `# envstencil:keep`.
+    """
 
     raw: str
     kind: str  # "comment", "blank", "pair", "unknown"
@@ -75,13 +85,21 @@ class EnvLine:
 
 
 def parse_env_file(path: Path) -> list[EnvLine]:
-    """Parse a .env file into a list of EnvLine entries, preserving order,
-    blank lines, and comments so the structure can be mirrored in the output.
+    """Parse a .env file into ordered EnvLine entries.
 
-    The `# envstencil:keep` directive itself is never kept as an EnvLine: a
-    standalone directive line is dropped (only its effect survives, on the next
-    pair), and an inline directive is stripped from the pair's comment.
+    Blank lines and comments are preserved so the structure can be mirrored
+    in the output. The `# envstencil:keep` directive is never kept as an
+    EnvLine: a standalone directive line is dropped (only its effect
+    survives, on the next pair) and an inline directive is stripped from the
+    pair's comment.
+
+    Args:
+        path: Path to the `.env` file to read.
+
+    Returns:
+        The parsed lines, in file order.
     """
+
     lines: list[EnvLine] = []
     text = path.read_text(encoding="utf-8")
 
@@ -150,16 +168,24 @@ def render_stencil(
     placeholder: str = DEFAULT_PLACEHOLDER,
     collapse_blank_lines: bool = False,
 ) -> str:
-    """Render parsed EnvLine entries into a .env.example body, replacing every
-    value with a generic placeholder while keeping comments and structure.
+    """Render parsed EnvLine entries into a .env.example body.
 
-    Inline comments documenting a pair are preserved. Pairs flagged with
-    `# envstencil:keep` (inline or on the line above) keep their real value; the
-    `envstencil:keep` directive itself never appears in the output.
+    Every value is replaced with `placeholder` while comments and structure
+    are kept. Inline comments documenting a pair are preserved. Pairs flagged
+    with `# envstencil:keep` keep their real value, and the directive itself
+    never appears in the output.
 
-    When `collapse_blank_lines` is true, runs of consecutive blank lines are
-    reduced to a single blank line.
+    Args:
+        lines: Parsed entries from
+            [`parse_env_file`][envstencil.core.parse_env_file].
+        placeholder: Text that replaces each value.
+        collapse_blank_lines: If `True`, reduce every run of consecutive
+            blank lines to a single one.
+
+    Returns:
+        The rendered `.env.example` content, ending with a newline.
     """
+
     output_lines: list[str] = []
 
     for line in lines:
@@ -184,11 +210,23 @@ def generate_example(
     force: bool = False,
     collapse_blank_lines: bool = False,
 ) -> Path:
-    """Read `source` (.env) and write a stencil to `destination` (.env.example).
+    """Read `source` and write a stencil to `destination`.
 
-    Raises FileExistsError if destination exists and force is False.
-    Raises FileNotFoundError if source does not exist.
+    Args:
+        source: Path to the source `.env` file.
+        destination: Path of the `.env.example` to write.
+        placeholder: Text that replaces each value.
+        force: If `True`, overwrite `destination` when it already exists.
+        collapse_blank_lines: If `True`, collapse consecutive blank lines.
+
+    Returns:
+        The `destination` path.
+
+    Raises:
+        FileNotFoundError: If `source` does not exist.
+        FileExistsError: If `destination` exists and `force` is `False`.
     """
+
     if not source.exists():
         raise FileNotFoundError(f"Arquivo de origem não encontrado: {source}")
 

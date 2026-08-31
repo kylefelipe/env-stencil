@@ -28,7 +28,7 @@ def main() -> None:
     "destination",
     type=click.Path(dir_okay=False, path_type=Path),
     default=None,
-    help="Caminho do arquivo de saída (padrão: <source>.example ao lado do arquivo).",
+    help="Arquivo de saída (padrão: origem + '.example', no mesmo diretório).",
 )
 @click.option(
     "-p",

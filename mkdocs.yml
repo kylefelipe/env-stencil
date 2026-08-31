@@ -9,8 +9,31 @@ theme:
   logo: assets/envstencil-symbol-1024.png
   favicon: assets/envstencil-symbol-1024.png
 
+nav:
+  - Inicio: index.md
+  - Modo de uso (CLI): cli_usage.md
+  - Referência da API: reference.md
+
 markdown_extensions:
   - attr_list
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - mkdocs-click
 
 extra_css:
   - stylesheets/extra.css
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [src]
+          options:
+            docstring_style: google
+            show_root_heading: true
+            show_source: true
+            separate_signature: true
+            show_signature_annotations: true
+            merge_init_into_class: true
