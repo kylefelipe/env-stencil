@@ -15,6 +15,7 @@
   - `src/envstencil/cli.py` — comando `envstencil generate [SOURCE] [-o OUTPUT] [-p PLACEHOLDER] [-f/--force] [-b/--collapse-blank-lines]`
   - `tests/test_core.py` — testes com `pytest`, usando fixture `tmp_path`
   - `docs/` — site MkDocs: `index.md` (landing), `cli_usage.md` (guia do CLI), `contributing.md` (setup/tasks/convenções), `api/` (autodoc de `core`), `templates/` (partials do mkdocs-macros)
+  - `.github/workflows/` — `ci.yml` (testes + cobertura no Codecov, em push/PR) e `publica-pypi.yml` (publica no PyPI ao criar GitHub Release)
 - Fluxo de dados: arquivo `.env` → `parse_env_file` (lista de `EnvLine`) → `render_stencil` (substitui valores por placeholder, preserva comentários/blank lines e valores de pares marcados com `# envstencil:keep`) → grava em `.env.example`
 
 ## 3. Como trabalhar aqui
@@ -26,6 +27,8 @@
 - Conteúdo de doc repetido vai para partials em `docs/templates/*.md`, incluídos com `{% include "nome.md" %}` (nome puro — `include_dir` já aponta para `docs/templates`; não viram páginas). Partials atuais: `install.md`, `dev_install.md`, `example.md`
 - Nos docs, usar as variáveis macro em vez de hardcode: `{{ config.repo_url }}` (URL do repo) e `{{ commands.run }}` (= `poetry run envstencil`, definido em `mkdocs.yml` → `extra.commands`)
 - Após mexer no `pyproject.toml`, rodar `poetry lock` e commitar o `poetry.lock`
+- Docs publicadas no Read the Docs (build via `.readthedocs.yaml`, que instala com `poetry install --with doc`); mudança no build de docs precisa refletir nesse arquivo
+- Release: bump da `version` em `pyproject.toml` → push no `main` → criar GitHub Release `vX.Y.Z`. O `publica-pypi.yml` builda, testa e publica no PyPI via Trusted Publishing (OIDC, sem token; environment `pypi`)
 - Instalar localmente para testar o CLI: `envstencil generate` dentro de um diretório com `.env`
 - Ao adicionar uma nova opção de tratamento de valores (ex.: mascarar só secrets), manter `DEFAULT_PLACEHOLDER` como comportamento padrão atual e expor a nova opção via flag no CLI, sem quebrar a API pública de `core.py`
 
