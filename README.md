@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="images/logos/envstencil-wordmark.svg" alt="EnvStencil" width="320">
+  <img src="https://raw.githubusercontent.com/kylefelipe/env-stencil/main/images/logos/envstencil-wordmark.png" alt="EnvStencil" width="320">
 </p>
 
 <p align="center">
@@ -11,6 +11,9 @@
 </p>
 
 # EnvStencil
+
+[![Documentation Status](https://app.readthedocs.org/projects/env-stencil/badge/?version=latest)](https://env-stencil.readthedocs.io/en/latest/?badge=latest)
+[![codecov](https://codecov.io/github/kylefelipe/env-stencil/graph/badge.svg?token=WTXDCQU4O2)](https://codecov.io/github/kylefelipe/env-stencil)
 
 Sempre quando estamos desenvolvendo, é comum a gente criar um arquivo `.env` com as variáveis de ambiente necessárias e depois ter de gerar um arquivo `.env.example` para que outros desenvolvedores possam criar o seu próprio `.env` a partir dele.
 

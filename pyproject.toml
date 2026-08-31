@@ -22,10 +22,17 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Environment :: Console",
+    "Natural Language :: Portuguese (Brazilian)",
 ]
 dependencies = [
     "click>=8.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/kylefelipe/env-stencil"
+Documentation = "https://env-stencil.readthedocs.io/pt/latest/"
+Repository = "https://github.com/kylefelipe/env-stencil"
+Issues = "https://github.com/kylefelipe/env-stencil/issues"
 
 [project.scripts]
 envstencil = "envstencil.cli:main"
