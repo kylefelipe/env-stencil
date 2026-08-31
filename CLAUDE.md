@@ -9,7 +9,7 @@
 ## 2. Visão geral do projeto
 - Pacote Python que gera um `.env.example` seguro a partir de um `.env`
 - Stack: Python puro (stdlib `re`, `pathlib`, `dataclasses`) + `click` para CLI
-- Build/gestão: Poetry 2.x (build-backend `poetry-core`); metadados em `[project]` (PEP 621), grupos `dev`/`doc` em `[tool.poetry.group.*]`
+- Build/gestão: Poetry 2.x (build-backend `poetry-core`); metadados em `[project]` (PEP 621), grupos `dev`/`doc` em `[tool.poetry.group.*]`, ambos `optional = true` (só instalam com `--with`)
 - Estrutura:
   - `src/envstencil/core.py` — parsing do `.env` (`parse_env_file`) e geração do stencil (`render_stencil`, `generate_example`)
   - `src/envstencil/cli.py` — comando `envstencil generate [SOURCE] [-o OUTPUT] [-p PLACEHOLDER] [-f/--force] [-b/--collapse-blank-lines]`
@@ -17,7 +17,7 @@
 - Fluxo de dados: arquivo `.env` → `parse_env_file` (lista de `EnvLine`) → `render_stencil` (substitui valores por placeholder, preserva comentários/blank lines e valores de pares marcados com `# envstencil:keep`) → grava em `.env.example`
 
 ## 3. Como trabalhar aqui
-- Ambiente de dev: `poetry install` (grupos `dev` e `doc` entram por padrão; `--without doc` para pular)
+- Ambiente de dev: `poetry install --with dev,doc` (grupos são `optional`; `poetry install` puro traz só o runtime)
 - Testes: `poetry run task test` — encadeia `task lint` (pre_test), `pytest -s -x --cov=envstencil -vv` e `coverage html` (post_test)
 - Lint/format: `poetry run task lint` (check) / `poetry run task fmt` (aplica) — `black` + `isort`, linha 79, aspas duplas; rodar `fmt` antes de commitar
 - `pytest` roda com `--doctest-modules`: qualquer `>>>` em docstring vira teste
