@@ -8,6 +8,7 @@
 
 <p align="center">
   📖 <a href="https://env-stencil.readthedocs.io/pt/latest/">Documentação completa</a>
+  · <a href="CHANGELOG.md">Changelog</a>
 </p>
 
 # EnvStencil

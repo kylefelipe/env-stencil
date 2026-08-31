@@ -30,7 +30,7 @@
 - Nos docs, usar as variáveis macro em vez de hardcode: `{{ config.repo_url }}` (URL do repo) e `{{ commands.run }}` (= `poetry run envstencil`, definido em `mkdocs.yml` → `extra.commands`)
 - Após mexer no `pyproject.toml`, rodar `poetry lock` e commitar o `poetry.lock`
 - Docs publicadas no Read the Docs (build via `.readthedocs.yaml`, que instala com `poetry install --with doc`); mudança no build de docs precisa refletir nesse arquivo
-- Release: bump da `version` em `pyproject.toml` → push no `main` → criar GitHub Release `vX.Y.Z`. O `publica-pypi.yml` builda, testa e publica no PyPI via Trusted Publishing (OIDC, sem token; environment `pypi`)
+- Versionamento, changelog e releases: ver seção 6
 - Instalar localmente para testar o CLI: `envstencil generate` dentro de um diretório com `.env`
 - Ao adicionar uma nova opção de tratamento de valores (ex.: mascarar só secrets), manter `DEFAULT_PLACEHOLDER` como comportamento padrão atual e expor a nova opção via flag no CLI, sem quebrar a API pública de `core.py`
 
@@ -53,3 +53,16 @@
 - Não usar `eval`/`exec` para parsear valores do `.env`
 - Não adicionar dependências pesadas — o projeto é intencionalmente enxuto (`click` é a única dependência de runtime)
 - Não sobrescrever `.env.example` sem `--force`
+
+## 6. Versionamento, changelog e releases
+- `CHANGELOG.md` (raiz) segue [Keep a Changelog 1.1.0](https://keepachangelog.com/pt-BR/1.1.0/); o projeto segue [Semantic Versioning](https://semver.org/lang/pt-BR/). Tags e releases usam prefixo `v` (`vX.Y.Z`)
+- Toda mudança relevante atualiza o `CHANGELOG.md` **no mesmo trabalho/PR que a implementa**. "Relevante" = altera comportamento público, segurança, API, CLI ou funcionalidades. Entra em `## [Unreleased]`, na categoria certa:
+  - nova funcionalidade → `Added`; mudança de comportamento → `Changed`; correção de bug → `Fixed`
+  - correção relacionada a secrets/exposição → `Security`; remoção → `Removed`; depreciação → `Deprecated`
+  - mudança puramente interna, sem impacto perceptível para o usuário → não precisa entrar
+- Só registrar o que já existe no código. Feature planejada não entra como `Added`/`Fixed`/etc.; roadmap não é changelog
+- Entradas curtas, em português, orientadas ao usuário — descrevem impacto/comportamento, não detalhe interno. Ex.: "Linhas `.env` não reconhecidas interrompem a geração para evitar vazar conteúdo sensível", não "alterado o `if` de `render_stencil`"
+- A `version` no `pyproject.toml` só muda ao preparar uma release ou quando pedido explicitamente — nunca durante uma feature comum
+- Enquanto `0.x`: patch (`0.x.Y`) para correções pequenas e compatíveis; minor (`0.X.0`) para funcionalidades novas ou mudança relevante de comportamento. Mesmo em `0.x`, avaliar com atenção o que pode afetar quem já usa
+- Ao preparar uma release: (1) revisar `[Unreleased]`; (2) definir a versão por SemVer; (3) criar `## [X.Y.Z] - YYYY-MM-DD` e mover as entradas de `[Unreleased]` para lá; (4) recriar `## [Unreleased]` vazio no topo; (5) atualizar os links de comparação no fim do arquivo; (6) bump da `version` no `pyproject.toml`; (7) push no `main` e criar o GitHub Release `vX.Y.Z` — o `publica-pypi.yml` builda, testa e publica no PyPI via Trusted Publishing (OIDC, environment `pypi`); (8) conferir consistência entre `CHANGELOG.md`, `pyproject.toml`, tag/release e documentação
+- Antes de dar por concluída qualquer mudança relevante, checar "o `CHANGELOG.md` precisa ser atualizado?" e resolver isso antes de fechar; manter `poetry run task lint` e `poetry run pytest` verdes
