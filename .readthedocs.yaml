@@ -6,17 +6,11 @@ build:
   os: ubuntu-24.04
   tools:
     python: "3.12"
-  jobs:
-    post_create_environment:
-      # O projeto usa Poetry
-      - pip install poetry
-      # Instala no virtualenv que o Read the Docs já criou e ativou
-      - poetry config virtualenvs.create false
-    post_install:
-      # O grupo "doc" é optional no pyproject.toml -> precisa do --with
-      - poetry install --with doc
-
-mkdocs:
-  configuration: mkdocs.yml
-  # Equivalente a `mkdocs build --strict`
-  fail_on_warning: true
+  commands:
+    # O projeto usa Poetry; instala no ambiente que o RTD criou/ativou
+    - pip install poetry
+    - poetry config virtualenvs.create false
+    # O grupo "doc" é optional no pyproject.toml -> precisa do --with
+    - poetry install --with doc
+    # Build do MkDocs para o diretório que o RTD publica ('--strict' obrigatório)
+    - mkdocs build --strict --site-dir $READTHEDOCS_OUTPUT/html
