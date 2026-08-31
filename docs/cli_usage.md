@@ -6,68 +6,20 @@ enquanto comentários, linhas em branco e a ordem das chaves são preservados.
 
 ## Instalação
 
-**pip** — do PyPI ou direto do git:
-
-```bash
-pip install envstencil
-pip install git+https://github.com/kylefelipe/env-stencil.git
-```
-
-**Poetry** — adiciona `envstencil` como dependência do seu projeto:
-
-```bash
-poetry add envstencil
-poetry add git+https://github.com/kylefelipe/env-stencil.git
-```
-
-Para desenvolvimento: `poetry install` na raiz do repositório.
+{% include "install.md" %}
 
 ## Uso básico
 
-Dentro de um projeto que tenha um `.env`:
+Por padrão, o `envstencil` lê o `.env` do diretório atual e escreve um
+`.env.example` ao lado dele:
 
 ```bash
-envstencil generate
+{{ commands.run }} generate
 ```
 
 Isso cria um `.env.example` ao lado do `.env`.
 
-**Entrada — `.env`:**
-
-```bash
-# Banco de dados
-DATABASE_URL=postgres://user:pass@localhost:5432/app
-POOL_SIZE=10  # tamanho do pool
-
-APP_ENV=production  # envstencil:keep
-
-# envstencil:keep
-LOG_LEVEL=info
-SECRET_KEY=s3cr3t-nao-compartilhe
-TIMEOUT=30  # segundos até desistir de uma request
-```
-
-**Saída — `.env.example`:**
-
-```bash
-# Banco de dados
-DATABASE_URL=your_value_here
-POOL_SIZE=your_value_here  # tamanho do pool
-
-APP_ENV=production
-
-LOG_LEVEL=info
-SECRET_KEY=your_value_here
-TIMEOUT=your_value_here  # segundos até desistir de uma request
-```
-
-Repare que:
-
-- Cada valor foi trocado pelo placeholder.
-- Comentários e linhas em branco continuam onde estavam.
-- `APP_ENV` e `LOG_LEVEL` mantiveram o valor real (têm a diretiva
-  `# envstencil:keep`), e a diretiva não aparece na saída.
-- O comentário de documentação de `POOL_SIZE` e `TIMEOUT` foi preservado.
+{% include "example.md" %}
 
 ## Mantendo valores com `# envstencil:keep`
 
@@ -117,10 +69,10 @@ TIMEOUT=your_value_here  # segundos até desistir de uma request
 
 ```bash
 # origem diferente do .env padrão
-envstencil generate .env.production
+{{ commands.run }} generate .env.production
 
 # destino explícito
-envstencil generate .env.production -o .env.production.example
+{{ commands.run }} generate .env.production -o .env.production.example
 ```
 
 Sem `-o`, o destino é `<origem>.example` no mesmo diretório
@@ -129,7 +81,7 @@ Sem `-o`, o destino é `<origem>.example` no mesmo diretório
 ## Placeholder customizado
 
 ```bash
-envstencil generate -p CHANGE_ME
+{{ commands.run }} generate -p CHANGE_ME
 ```
 
 ## Sobrescrevendo um `.env.example` existente
@@ -137,14 +89,14 @@ envstencil generate -p CHANGE_ME
 Por segurança, o comando não sobrescreve um arquivo que já existe:
 
 ```console
-$ envstencil generate
+$ {{ commands.run }} generate
 Error: .env.example já existe. Use --force para sobrescrever.
 ```
 
 Passe `-f` / `--force` para permitir:
 
 ```bash
-envstencil generate --force
+{{ commands.run }} generate --force
 ```
 
 ## Limpando linhas em branco
@@ -154,13 +106,13 @@ branco a uma só — útil quando remover diretivas `# envstencil:keep` deixa
 buracos no arquivo:
 
 ```bash
-envstencil generate -b
+{{ commands.run }} generate -b
 ```
 
 ## Referência das opções
 
 A lista abaixo é gerada automaticamente a partir de
-[`envstencil/cli.py`](https://github.com/kylefelipe/env-stencil/blob/main/src/envstencil/cli.py).
+[`envstencil/cli.py`]({{ config.repo_url }}/blob/main/src/envstencil/cli.py).
 
 ::: mkdocs-click
     :module: envstencil.cli

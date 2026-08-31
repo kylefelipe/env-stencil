@@ -71,21 +71,11 @@ STRIPE_SECRET_KEY=your_value_here
 
 ## Desenvolvimento
 
-Requer **Poetry 2.0+**. Os grupos `dev` (testes, lint) e `doc` são
-instalados por padrão:
+Requer **Poetry 2.0+**. Os grupos `dev` e `doc` são opcionais — `poetry install`
+sozinho instala só o runtime:
 
 ```bash
-poetry install
+poetry install --with dev,doc
 ```
 
-Tarefas (via [taskipy](https://github.com/taskipy/taskipy)):
-
-```bash
-poetry run task test    # pytest -v
-poetry run task cov     # cobertura
-poetry run task lint    # black --check + isort --check
-poetry run task fmt     # aplica isort + black
-poetry run task docs    # mkdocs serve
-```
-
-Para pular a documentação: `poetry install --without doc`.
+Tarefas, convenções e fluxo de PR em [docs/contributing.md](docs/contributing.md).

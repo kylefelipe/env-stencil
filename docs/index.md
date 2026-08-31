@@ -18,56 +18,18 @@ commit. O `envstencil` gera o arquivo a partir da fonte de verdade: o seu
 
 ## Num relance
 
-**`.env`**
-
-```bash
-# Banco de dados
-DATABASE_URL=postgres://user:pass@localhost:5432/app
-POOL_SIZE=10  # tamanho do pool
-APP_ENV=production  # envstencil:keep
-SECRET_KEY=s3cr3t-nao-compartilhe
-```
-
-**`.env.example`** (gerado)
-
-```bash
-# Banco de dados
-DATABASE_URL=your_value_here
-POOL_SIZE=your_value_here  # tamanho do pool
-APP_ENV=production
-SECRET_KEY=your_value_here
-```
-
-- Cada valor vira o placeholder (`your_value_here` por padrão).
-- Comentários de documentação e a estrutura do arquivo continuam iguais.
-- Linhas marcadas com `# envstencil:keep` mantêm o valor real — para defaults
-  públicos como `APP_ENV`, `LOG_LEVEL`, `PORT` — e a diretiva não aparece na
-  saída.
+{% include "example.md" %}
 
 ## Instalação
 
-**pip** — do PyPI ou direto do git:
-
-```bash
-pip install envstencil
-pip install git+https://github.com/kylefelipe/env-stencil.git
-```
-
-**Poetry** — adiciona `envstencil` como dependência do seu projeto:
-
-```bash
-poetry add envstencil
-poetry add git+https://github.com/kylefelipe/env-stencil.git
-```
-
-Para desenvolvimento: `poetry install` na raiz do repositório.
+{% include "install.md" %}
 
 ## Uso rápido
 
 Dentro de um projeto com um `.env`:
 
 ```bash
-envstencil generate
+{{ commands.run }} generate
 ```
 
 Isso escreve um `.env.example` ao lado do `.env`.

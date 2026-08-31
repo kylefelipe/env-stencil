@@ -14,6 +14,7 @@ theme:
 nav:
   - Início: index.md
   - Modo de uso (CLI): cli_usage.md
+  - Contribuindo: contributing.md
   - Referência da API:
     - api/index.md
     - API Core: api/core.md
@@ -41,3 +42,9 @@ plugins:
             separate_signature: true
             show_signature_annotations: true
             merge_init_into_class: true
+  - macros:
+      include_dir: docs/templates
+
+extra:
+  commands:
+    run: poetry run envstencil
