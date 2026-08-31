@@ -76,5 +76,5 @@ Isso escreve um `.env.example` ao lado do `.env`.
 
 - [**Modo de uso (CLI)**](cli_usage.md) — todas as opções, a diretiva
   `# envstencil:keep`, e exemplos de entrada e saída.
-- [**Referência da API**](reference.md) — usar o `envstencil` como biblioteca
+- [**Referência da API**](api/index.md) — usar o `envstencil` como biblioteca
   (`parse_env_file`, `render_stencil`, `generate_example`).

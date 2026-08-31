@@ -1,18 +1,22 @@
 site_name: EnvStencil
 repo_url: https://github.com/kylefelipe/env-stencil
 repo_name: kylefelipe/env-stencil
-edit_uri: tree/main/docs
+edit_uri: edit/main/docs
 
 theme:
   name: material
   language: pt-BR
   logo: assets/envstencil-symbol-1024.png
   favicon: assets/envstencil-symbol-1024.png
+  features:
+    - navigation.indexes
 
 nav:
-  - Inicio: index.md
+  - Início: index.md
   - Modo de uso (CLI): cli_usage.md
-  - Referência da API: reference.md
+  - Referência da API:
+    - api/index.md
+    - API Core: api/core.md
 
 markdown_extensions:
   - attr_list

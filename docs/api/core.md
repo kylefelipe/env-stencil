@@ -1,3 +1,3 @@
-# Referência da API
+# `envstencil.core`
 
 ::: envstencil.core
