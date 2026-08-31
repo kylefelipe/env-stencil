@@ -5,7 +5,7 @@ build-backend = "poetry.core.masonry.api"
 [project]
 name = "envstencil"
 version = "0.1.0"
-description = "Generate a safe .env.example stencil from your .env files"
+description = "CLI Python que gera um .env.example seguro a partir do seu .env — troca os valores por placeholders e preserva comentários e estrutura."
 readme = "README.md"
 requires-python = ">=3.10,<4"
 license = { text = "MIT" }
