@@ -7,6 +7,8 @@ e este projeto segue o [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-08-31
+
 ### Added
 
 - Suporte a valores entre aspas (simples ou duplas) que ocupam várias linhas
@@ -47,5 +49,6 @@ e este projeto segue o [Semantic Versioning](https://semver.org/lang/pt-BR/).
   comando `envstencil`.
 - Documentação no Read the Docs e integração contínua com testes e cobertura.
 
-[Unreleased]: https://github.com/kylefelipe/env-stencil/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/kylefelipe/env-stencil/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/kylefelipe/env-stencil/releases/tag/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/kylefelipe/env-stencil/releases/tag/v0.1.0
