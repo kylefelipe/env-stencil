@@ -4,6 +4,7 @@ import pytest
 
 from envstencil.core import (
     DEFAULT_PLACEHOLDER,
+    UnsafeEnvLineError,
     generate_example,
     parse_env_file,
     render_stencil,
@@ -265,3 +266,99 @@ def test_generate_example_force_overwrites(tmp_path: Path) -> None:
     result = generate_example(env_file, dest, force=True)
 
     assert f"KEY={DEFAULT_PLACEHOLDER}" in result.read_text(encoding="utf-8")
+
+
+# --- Linhas não reconhecidas (fail-safe) -----------------------------------
+
+
+def test_parse_env_file_tracks_line_numbers(tmp_path: Path) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text(SAMPLE_ENV, encoding="utf-8")
+
+    lines = parse_env_file(env_file)
+
+    assert [line.line_number for line in lines] == list(
+        range(1, len(lines) + 1)
+    )
+
+
+def test_unknown_line_aborts_and_writes_nothing(tmp_path: Path) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "DATABASE_URL=secret\nisto nao e uma linha dotenv valida\n",
+        encoding="utf-8",
+    )
+    dest = tmp_path / ".env.example"
+
+    with pytest.raises(UnsafeEnvLineError):
+        generate_example(env_file, dest)
+
+    assert not dest.exists()
+
+
+def test_unknown_line_does_not_overwrite_existing_output(
+    tmp_path: Path,
+) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text("KEY=ok\n??? linha invalida\n", encoding="utf-8")
+    dest = tmp_path / ".env.example"
+    dest.write_text("conteudo anterior\n", encoding="utf-8")
+
+    with pytest.raises(UnsafeEnvLineError):
+        generate_example(env_file, dest, force=True)
+
+    assert dest.read_text(encoding="utf-8") == "conteudo anterior\n"
+
+
+def test_render_stencil_rejects_unknown_line(tmp_path: Path) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text("KEY=ok\n<<<lixo>>>\n", encoding="utf-8")
+
+    with pytest.raises(UnsafeEnvLineError):
+        render_stencil(parse_env_file(env_file))
+
+
+def test_multiline_secret_like_content_aborts_without_leaking(
+    tmp_path: Path,
+) -> None:
+    secret = "super-secret-content"
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        'PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n'
+        f"{secret}\n"
+        '-----END PRIVATE KEY-----"\n',
+        encoding="utf-8",
+    )
+    dest = tmp_path / ".env.example"
+
+    with pytest.raises(UnsafeEnvLineError) as excinfo:
+        generate_example(env_file, dest)
+
+    assert secret not in str(excinfo.value)
+    assert not dest.exists()
+
+
+def test_unsafe_error_reports_the_offending_line_number(
+    tmp_path: Path,
+) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "# comentário\nKEY=ok\n\nlinha quebrada aqui\n", encoding="utf-8"
+    )
+
+    with pytest.raises(UnsafeEnvLineError) as excinfo:
+        render_stencil(parse_env_file(env_file))
+
+    assert excinfo.value.line_number == 4
+    assert "4" in str(excinfo.value)
+
+
+def test_unsafe_error_message_hides_sensitive_value(tmp_path: Path) -> None:
+    secret = "AKIAIOSFODNN7EXAMPLE-conteudo-super-sensivel-1234567890"
+    env_file = tmp_path / ".env"
+    env_file.write_text(f"linha invalida com {secret}\n", encoding="utf-8")
+
+    with pytest.raises(UnsafeEnvLineError) as excinfo:
+        render_stencil(parse_env_file(env_file))
+
+    assert secret not in str(excinfo.value)

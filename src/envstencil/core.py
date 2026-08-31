@@ -20,6 +20,38 @@ _KEY_VALUE_RE = re.compile(
 _KEEP_MARKER_RE = re.compile(r"#\s*envstencil\s*:\s*keep\b", re.IGNORECASE)
 
 
+def _safe_preview(raw: str) -> str:
+    """Return a content-free description of a line for error messages.
+
+    The line's text is deliberately omitted: an unrecognized line may carry
+    a secret, and it must never be echoed back verbatim.
+    """
+    return f"{len(raw.strip())} caractere(s)"
+
+
+class UnsafeEnvLineError(ValueError):
+    """Raised when a line cannot be safely turned into a stencil entry.
+
+    envstencil is fail-safe: instead of copying a line it does not
+    understand (which could contain a secret), generation aborts.
+
+    Attributes:
+        line_number: 1-based line where the problem was found.
+        raw: The offending line, kept for programmatic use — do not print it.
+    """
+
+    def __init__(self, line_number: int, raw: str) -> None:
+        self.line_number = line_number
+        self.raw = raw
+        super().__init__(
+            f"Linha {line_number} não reconhecida como sintaxe .env válida "
+            f"({_safe_preview(raw)}). Revise a sintaxe do .env: o envstencil "
+            f"aborta em vez de copiar linhas que não sabe sanitizar "
+            f"(ex.: valores multi-linha precisam estar entre aspas na mesma "
+            f"linha)."
+        )
+
+
 def _split_inline_comment(value: str) -> tuple[str, str]:
     """Split a parsed value into ``(value, inline_comment)``.
 
@@ -71,6 +103,8 @@ class EnvLine:
         prefix: Leading `"export "` when present, otherwise `""`.
         inline_comment: Trailing `# ...` of a pair, with its leading space.
         keep: Whether the pair is flagged with `# envstencil:keep`.
+        line_number: 1-based position of the line in the source file
+            (`0` when the entry was not produced by `parse_env_file`).
     """
 
     raw: str
@@ -82,6 +116,7 @@ class EnvLine:
         ""  # trailing `# ...` on a pair (with its leading space)
     )
     keep: bool = False  # pair marked with `# envstencil:keep`
+    line_number: int = 0  # 1-based; 0 = not set by parse_env_file
 
 
 def parse_env_file(path: Path) -> list[EnvLine]:
@@ -107,11 +142,13 @@ def parse_env_file(path: Path) -> list[EnvLine]:
     # pair. Blank lines in between are tolerated; any other line clears it.
     pending_keep = False
 
-    for raw_line in text.splitlines():
+    for line_number, raw_line in enumerate(text.splitlines(), start=1):
         stripped = raw_line.strip()
 
         if not stripped:
-            lines.append(EnvLine(raw=raw_line, kind="blank"))
+            lines.append(
+                EnvLine(raw=raw_line, kind="blank", line_number=line_number)
+            )
             continue
 
         if stripped.startswith("#"):
@@ -119,9 +156,21 @@ def parse_env_file(path: Path) -> list[EnvLine]:
                 pending_keep = True
                 remainder = _strip_keep_marker(stripped).lstrip()
                 if remainder:
-                    lines.append(EnvLine(raw=remainder, kind="comment"))
+                    lines.append(
+                        EnvLine(
+                            raw=remainder,
+                            kind="comment",
+                            line_number=line_number,
+                        )
+                    )
             else:
-                lines.append(EnvLine(raw=raw_line, kind="comment"))
+                lines.append(
+                    EnvLine(
+                        raw=raw_line,
+                        kind="comment",
+                        line_number=line_number,
+                    )
+                )
             continue
 
         match = _KEY_VALUE_RE.match(stripped)
@@ -139,12 +188,15 @@ def parse_env_file(path: Path) -> list[EnvLine]:
                     prefix=match.group("prefix") or "",
                     inline_comment=inline_comment,
                     keep=pending_keep or has_inline_marker,
+                    line_number=line_number,
                 )
             )
             pending_keep = False
             continue
 
-        lines.append(EnvLine(raw=raw_line, kind="unknown"))
+        lines.append(
+            EnvLine(raw=raw_line, kind="unknown", line_number=line_number)
+        )
         pending_keep = False
 
     return lines
@@ -175,6 +227,9 @@ def render_stencil(
     with `# envstencil:keep` keep their real value, and the directive itself
     never appears in the output.
 
+    Generation is fail-safe: an `"unknown"` line (one the parser could not
+    classify) is never copied — it aborts with `UnsafeEnvLineError`.
+
     Args:
         lines: Parsed entries from
             [`parse_env_file`][envstencil.core.parse_env_file].
@@ -184,12 +239,17 @@ def render_stencil(
 
     Returns:
         The rendered `.env.example` content, ending with a newline.
+
+    Raises:
+        UnsafeEnvLineError: If any line is `kind == "unknown"`.
     """
 
     output_lines: list[str] = []
 
     for line in lines:
-        if line.kind in ("comment", "blank", "unknown"):
+        if line.kind == "unknown":
+            raise UnsafeEnvLineError(line.line_number, line.raw)
+        if line.kind in ("comment", "blank"):
             output_lines.append(line.raw)
         elif line.kind == "pair":
             rendered_value = line.value if line.keep else placeholder
@@ -225,6 +285,8 @@ def generate_example(
     Raises:
         FileNotFoundError: If `source` does not exist.
         FileExistsError: If `destination` exists and `force` is `False`.
+        UnsafeEnvLineError: If `source` has a line that cannot be sanitized
+            (no output file is written or overwritten in that case).
     """
 
     if not source.exists():

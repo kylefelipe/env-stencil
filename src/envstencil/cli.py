@@ -6,7 +6,11 @@ from pathlib import Path
 
 import click
 
-from .core import DEFAULT_PLACEHOLDER, generate_example
+from .core import (
+    DEFAULT_PLACEHOLDER,
+    UnsafeEnvLineError,
+    generate_example,
+)
 
 
 @click.group()
@@ -70,6 +74,8 @@ def generate(
             force=force,
             collapse_blank_lines=collapse_blank_lines,
         )
+    except UnsafeEnvLineError as exc:
+        raise click.ClickException(str(exc)) from exc
     except FileExistsError as exc:
         raise click.ClickException(str(exc)) from exc
     except FileNotFoundError as exc:
