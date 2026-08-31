@@ -3,8 +3,9 @@
 ## 1. Regras críticas (SEMPRE seguir)
 - Nunca commitar arquivos `.env` reais ou qualquer valor sensível de exemplo
 - Todo valor no `.env.example` gerado deve usar o placeholder configurado (padrão: `your_value_here`) — nunca vazar o valor original. Única exceção: pares explicitamente marcados com `# envstencil:keep` (inline ou na linha de cima), cujo valor real é mantido de propósito
-- Fail-safe: linha que o parser não classifica (`kind == "unknown"`) NUNCA é copiada. `render_stencil` aborta com `UnsafeEnvLineError` e `generate_example` não grava nem sobrescreve nada. Filosofia: entendeu com segurança → sanitiza; não entendeu → aborta. Proibido fallback que copie conteúdo cru
-- Mensagem de erro sobre linha insegura não imprime o conteúdo da linha — só `line_number` + `_safe_preview` (que devolve apenas o comprimento)
+- Fail-safe: linha que o parser não classifica (`kind == "unknown"`) NUNCA é copiada — `render_stencil` aborta com `UnsafeEnvLineError`. Valor entre aspas que não fecha aborta com `UnterminatedQuotedValueError` (ambos herdam de `EnvParseError`). `generate_example` não grava nem sobrescreve nada. Filosofia: entendeu com segurança → sanitiza; não entendeu → aborta. Proibido fallback que copie conteúdo cru
+- Erros de parsing nunca imprimem o valor/conteúdo da linha — só `line_number`, `key` (quando estrutural) e, para `unknown`, `_safe_preview` (só o comprimento). Novo caso de parsing exige teste que confirme isso
+- `generate_example` escreve de forma atômica (arquivo temporário + `os.replace`); falha nunca deixa `.env.example` pela metade
 - Manter compatibilidade com Python >= 3.10 (ver `pyproject.toml`, `requires-python`)
 - Rodar `poetry run task test` (ou `poetry run pytest`) antes de considerar qualquer mudança em `core.py` concluída
 
@@ -18,7 +19,7 @@
   - `tests/test_core.py`, `tests/test_cli.py` — testes com `pytest` (`tmp_path`; CLI via `click.testing.CliRunner`)
   - `docs/` — site MkDocs: `index.md` (landing), `cli_usage.md` (guia do CLI), `contributing.md` (setup/tasks/convenções), `api/` (autodoc de `core`), `templates/` (partials do mkdocs-macros)
   - `.github/workflows/` — `ci.yml` (testes + cobertura no Codecov, em push/PR) e `publica-pypi.yml` (publica no PyPI ao criar GitHub Release)
-- Fluxo de dados: arquivo `.env` → `parse_env_file` (lista de `EnvLine`, cada uma com `line_number`) → `render_stencil` (substitui valores por placeholder, preserva comentários/blank lines e valores marcados com `# envstencil:keep`; aborta com `UnsafeEnvLineError` em linha `unknown`) → grava em `.env.example`
+- Fluxo de dados: arquivo `.env` → `parse_env_file` (lista de `EnvLine`, cada uma com `line_number`/`end_line_number`; um valor entre aspas não fechado na 1ª linha consome as linhas seguintes até fechar e vira um único `pair`) → `render_stencil` (substitui valores por placeholder, preserva comentários/blank lines e valores marcados com `# envstencil:keep`, inclusive multi-linha; aborta com `UnsafeEnvLineError` em linha `unknown`) → grava em `.env.example` (atômico)
 
 ## 3. Como trabalhar aqui
 - Ambiente de dev: `poetry install --with dev,doc` (grupos são `optional`; `poetry install` puro traz só o runtime)
@@ -35,10 +36,11 @@
 - Ao adicionar uma nova opção de tratamento de valores (ex.: mascarar só secrets), manter `DEFAULT_PLACEHOLDER` como comportamento padrão atual e expor a nova opção via flag no CLI, sem quebrar a API pública de `core.py`
 
 ## 4. Convenções
-- Manter `EnvLine` como dataclass simples (kind: comment/blank/pair/unknown; campos `inline_comment`, `keep`, `line_number` 1-based). Campo novo entra com default para não quebrar construção existente
-- `UnsafeEnvLineError` (subclasse de `ValueError`) é levantada em `render_stencil`, não em `parse_env_file` — o parser continua inspecionável (dá pra listar todas as linhas `unknown`). O CLI captura e converte em `click.ClickException` (exit ≠ 0)
+- Manter `EnvLine` como dataclass simples (kind: comment/blank/pair/unknown; campos `inline_comment`, `keep`, `line_number` 1-based, `end_line_number` só para multi-linha). Campo novo entra com default para não quebrar construção existente
+- Erros de parsing herdam de `EnvParseError(ValueError)`: `UnsafeEnvLineError` (levantada em `render_stencil`, parser fica inspecionável) e `UnterminatedQuotedValueError` (em `parse_env_file`). O CLI captura `EnvParseError` e converte em `click.ClickException` (exit ≠ 0)
+- Multi-linha entre aspas: `parse_env_file` consome linhas físicas via `_quote_closed` (mesma semântica de escape do `_split_inline_comment`) e produz um único `pair`; não usar regex gigante nem interpretar o conteúdo
 - Comentário inline que documenta um par (`KEY=valor # descrição`) é separado do valor em `_split_inline_comment` e re-anexado no stencil; só o valor vira placeholder
-- Regex de parsing (`_KEY_VALUE_RE`) deve continuar tolerando prefixo `export ` e espaços ao redor do `=`
+- Regex de parsing (`_KEY_VALUE_RE`) tolera prefixo `export `, espaços ao redor do `=` e chaves com `.`/`-` (1º char ainda `[A-Za-z_]`). Se a linha casa inequivocamente como par, o valor NÃO é validado semanticamente — só mascarado
 - Diretiva `# envstencil:keep` (regex `_KEEP_MARKER_RE`, case-insensitive): vale como comentário inline no par ou como comentário isolado na linha de cima (aplicada ao próximo par, tolerando blank lines)
 - A própria diretiva `envstencil:keep` nunca aparece no stencil: linha isolada só com a diretiva é descartada; inline, é removida via `_strip_keep_marker`, que preserva o resto do comentário e normaliza para um único espaço antes do `#`. Par renderizado sempre como `{prefix}{key}={valor_ou_placeholder}{inline_comment}`
 - Formatação de saída fica em `render_stencil` (ex.: `collapse_blank_lines` via `_collapse_blank_lines`), opt-in por parâmetro e exposta por flag no CLI; sem a flag, a estrutura do `.env` é espelhada 1:1

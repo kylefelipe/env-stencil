@@ -8,7 +8,7 @@ import click
 
 from .core import (
     DEFAULT_PLACEHOLDER,
-    UnsafeEnvLineError,
+    EnvParseError,
     generate_example,
 )
 
@@ -74,7 +74,7 @@ def generate(
             force=force,
             collapse_blank_lines=collapse_blank_lines,
         )
-    except UnsafeEnvLineError as exc:
+    except EnvParseError as exc:
         raise click.ClickException(str(exc)) from exc
     except FileExistsError as exc:
         raise click.ClickException(str(exc)) from exc

@@ -7,12 +7,25 @@ e este projeto segue o [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+### Added
+
+- Suporte a valores entre aspas (simples ou duplas) que ocupam várias linhas
+  reais: são reconhecidos como um único par e mascarados no `.env.example`,
+  sem que nenhuma linha interna vaze. Comentário após a aspa final e
+  `# envstencil:keep` continuam funcionando.
+- Chaves com `.` e `-` (ex.: `my.app.key`, `my-setting`) passam a ser
+  reconhecidas e mascaradas.
+
 ### Security
 
 - Linhas do `.env` que o parser não reconhece deixam de ser copiadas para o
   `.env.example`. A geração agora falha de forma segura — erro claro, código de
   saída diferente de zero no CLI e nenhum arquivo escrito ou sobrescrito —,
   evitando que conteúdo potencialmente sensível vaze para o stencil.
+- Valor entre aspas que nunca é fechado interrompe a geração em vez de
+  consumir o resto do arquivo.
+- O `.env.example` passa a ser escrito de forma atômica: uma falha durante a
+  geração nunca deixa o arquivo pela metade.
 
 ## [0.1.0] - 2026-08-31
 

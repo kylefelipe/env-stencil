@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -9,9 +10,15 @@ from pathlib import Path
 DEFAULT_PLACEHOLDER = "your_value_here"
 
 # Matches KEY=VALUE lines, tolerating optional `export ` prefix and spaces
-# around the `=`. Keys follow standard shell/dotenv identifier rules.
+# around the `=`. The key must start like a shell identifier but may then
+# contain `.` and `-` — both are accepted by common dotenv parsers (npm
+# `dotenv` uses `[\w.-]+`, python-dotenv is even more permissive) and show up
+# in real files (`my.app.key`, `my-setting`). The `\s*=` anchor keeps the
+# match unambiguous: no `=`, no pair.
 _KEY_VALUE_RE = re.compile(
-    r"^(?P<prefix>export\s+)?(?P<key>[A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?P<value>.*)$"
+    r"^(?P<prefix>export\s+)?"
+    r"(?P<key>[A-Za-z_][A-Za-z0-9_.-]*)"
+    r"\s*=\s*(?P<value>.*)$"
 )
 
 # Opt-in directive that tells envstencil to keep the real value in the stencil
@@ -29,11 +36,38 @@ def _safe_preview(raw: str) -> str:
     return f"{len(raw.strip())} caractere(s)"
 
 
-class UnsafeEnvLineError(ValueError):
-    """Raised when a line cannot be safely turned into a stencil entry.
+def _quote_closed(body: str, quote: str) -> bool:
+    """Whether an already-open `quote` region is closed within `body`.
 
-    envstencil is fail-safe: instead of copying a line it does not
-    understand (which could contain a secret), generation aborts.
+    `body` is the value text *after* the opening quote. Only the boundary
+    matters — the content is never interpreted. For double quotes a
+    backslash escapes the next character (so ``\\"`` does not close, and a
+    trailing ``\\`` escapes the joined newline); single quotes have no
+    escapes. Mirrors the scanning in `_split_inline_comment`.
+    """
+    i = 0
+    n = len(body)
+    while i < n:
+        ch = body[i]
+        if quote == '"' and ch == "\\":
+            i += 2
+            continue
+        if ch == quote:
+            return True
+        i += 1
+    return False
+
+
+class EnvParseError(ValueError):
+    """Base class for `.env` parsing failures that abort generation.
+
+    envstencil is fail-safe: when it cannot be sure of a line's structure it
+    stops instead of copying content it does not understand.
+    """
+
+
+class UnsafeEnvLineError(EnvParseError):
+    """Raised when a line cannot be safely turned into a stencil entry.
 
     Attributes:
         line_number: 1-based line where the problem was found.
@@ -46,9 +80,26 @@ class UnsafeEnvLineError(ValueError):
         super().__init__(
             f"Linha {line_number} não reconhecida como sintaxe .env válida "
             f"({_safe_preview(raw)}). Revise a sintaxe do .env: o envstencil "
-            f"aborta em vez de copiar linhas que não sabe sanitizar "
-            f"(ex.: valores multi-linha precisam estar entre aspas na mesma "
-            f"linha)."
+            f"aborta em vez de copiar linhas que não sabe sanitizar."
+        )
+
+
+class UnterminatedQuotedValueError(EnvParseError):
+    """Raised when a quoted value is opened but never closed.
+
+    Attributes:
+        key: The variable whose value is unterminated (may be `None`).
+        line_number: 1-based line where the value started.
+    """
+
+    def __init__(self, key: str | None, line_number: int) -> None:
+        self.key = key
+        self.line_number = line_number
+        alvo = f"para {key}" if key else "para uma chave não identificada"
+        super().__init__(
+            f"Valor iniciado na linha {line_number} {alvo} possui aspas não "
+            f"fechadas. Feche a aspa ou coloque o valor em uma única linha — "
+            f"o envstencil aborta em vez de adivinhar onde o valor termina."
         )
 
 
@@ -103,8 +154,10 @@ class EnvLine:
         prefix: Leading `"export "` when present, otherwise `""`.
         inline_comment: Trailing `# ...` of a pair, with its leading space.
         keep: Whether the pair is flagged with `# envstencil:keep`.
-        line_number: 1-based position of the line in the source file
-            (`0` when the entry was not produced by `parse_env_file`).
+        line_number: 1-based position where the entry starts in the source
+            file (`0` when not produced by `parse_env_file`).
+        end_line_number: Last physical line the entry spans, set only for
+            multi-line quoted values; `None` otherwise.
     """
 
     raw: str
@@ -117,6 +170,7 @@ class EnvLine:
     )
     keep: bool = False  # pair marked with `# envstencil:keep`
     line_number: int = 0  # 1-based; 0 = not set by parse_env_file
+    end_line_number: int | None = None  # last line, for multi-line values
 
 
 def parse_env_file(path: Path) -> list[EnvLine]:
@@ -128,27 +182,43 @@ def parse_env_file(path: Path) -> list[EnvLine]:
     survives, on the next pair) and an inline directive is stripped from the
     pair's comment.
 
+    A quoted value (single or double) whose quote is not closed on its first
+    line consumes the following physical lines until the quote closes, and
+    the whole thing becomes one `kind == "pair"` entry.
+
     Args:
         path: Path to the `.env` file to read.
 
     Returns:
         The parsed lines, in file order.
+
+    Raises:
+        UnterminatedQuotedValueError: If a quoted value never closes.
     """
 
     lines: list[EnvLine] = []
     text = path.read_text(encoding="utf-8")
 
+    # `splitlines()` handles \n, \r\n and \r consistently: one logical line
+    # each. We index explicitly so a multi-line value can pull the lines it
+    # needs.
+    physical = text.splitlines()
+
     # Set by a standalone `# envstencil:keep` comment and consumed by the next
     # pair. Blank lines in between are tolerated; any other line clears it.
     pending_keep = False
 
-    for line_number, raw_line in enumerate(text.splitlines(), start=1):
+    i = 0
+    while i < len(physical):
+        raw_line = physical[i]
+        line_number = i + 1
         stripped = raw_line.strip()
 
         if not stripped:
             lines.append(
                 EnvLine(raw=raw_line, kind="blank", line_number=line_number)
             )
+            i += 1
             continue
 
         if stripped.startswith("#"):
@@ -171,17 +241,39 @@ def parse_env_file(path: Path) -> list[EnvLine]:
                         line_number=line_number,
                     )
                 )
+            i += 1
             continue
 
         match = _KEY_VALUE_RE.match(stripped)
         if match:
-            value, inline_comment = _split_inline_comment(match.group("value"))
+            raw_value = match.group("value")
+            lead = raw_value[0] if raw_value[:1] in ("'", '"') else None
+
+            if lead is not None and not _quote_closed(raw_value[1:], lead):
+                collected = [raw_value]
+                j = i
+                while not _quote_closed("\n".join(collected)[1:], lead):
+                    j += 1
+                    if j >= len(physical):
+                        raise UnterminatedQuotedValueError(
+                            match.group("key"), line_number
+                        )
+                    collected.append(physical[j])
+                raw_repr = "\n".join(collected)
+                value, inline_comment = _split_inline_comment(raw_repr)
+                end_line_number: int | None = j + 1
+            else:
+                raw_repr = raw_line
+                value, inline_comment = _split_inline_comment(raw_value)
+                end_line_number = None
+                j = i
+
             has_inline_marker = bool(_KEEP_MARKER_RE.search(inline_comment))
             if has_inline_marker:
                 inline_comment = _strip_keep_marker(inline_comment)
             lines.append(
                 EnvLine(
-                    raw=raw_line,
+                    raw=raw_repr,
                     kind="pair",
                     key=match.group("key"),
                     value=value,
@@ -189,15 +281,18 @@ def parse_env_file(path: Path) -> list[EnvLine]:
                     inline_comment=inline_comment,
                     keep=pending_keep or has_inline_marker,
                     line_number=line_number,
+                    end_line_number=end_line_number,
                 )
             )
             pending_keep = False
+            i = j + 1
             continue
 
         lines.append(
             EnvLine(raw=raw_line, kind="unknown", line_number=line_number)
         )
         pending_keep = False
+        i += 1
 
     return lines
 
@@ -224,8 +319,9 @@ def render_stencil(
 
     Every value is replaced with `placeholder` while comments and structure
     are kept. Inline comments documenting a pair are preserved. Pairs flagged
-    with `# envstencil:keep` keep their real value, and the directive itself
-    never appears in the output.
+    with `# envstencil:keep` keep their real value (multi-line values keep
+    their real newlines), and the directive itself never appears in the
+    output.
 
     Generation is fail-safe: an `"unknown"` line (one the parser could not
     classify) is never copied — it aborts with `UnsafeEnvLineError`.
@@ -285,8 +381,10 @@ def generate_example(
     Raises:
         FileNotFoundError: If `source` does not exist.
         FileExistsError: If `destination` exists and `force` is `False`.
-        UnsafeEnvLineError: If `source` has a line that cannot be sanitized
-            (no output file is written or overwritten in that case).
+        EnvParseError: If `source` has a line that cannot be sanitized
+            (`UnsafeEnvLineError`) or a quoted value that never closes
+            (`UnterminatedQuotedValueError`). Nothing is written or
+            overwritten in that case.
     """
 
     if not source.exists():
@@ -297,11 +395,21 @@ def generate_example(
             f"{destination} já existe. Use --force para sobrescrever."
         )
 
+    # Read → parse → render fully before touching the destination, then swap
+    # atomically. A parsing error aborts before any file is created, and the
+    # destination is never left half-written.
     lines = parse_env_file(source)
     content = render_stencil(
         lines,
         placeholder=placeholder,
         collapse_blank_lines=collapse_blank_lines,
     )
-    destination.write_text(content, encoding="utf-8")
+
+    tmp = destination.with_name(destination.name + ".tmp")
+    tmp.write_text(content, encoding="utf-8")
+    try:
+        os.replace(tmp, destination)
+    except OSError:
+        tmp.unlink(missing_ok=True)
+        raise
     return destination

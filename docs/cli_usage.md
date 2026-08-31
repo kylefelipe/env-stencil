@@ -65,6 +65,47 @@ TIMEOUT=30  # segundos até desistir de uma request
 TIMEOUT=your_value_here  # segundos até desistir de uma request
 ```
 
+## Valores multi-linha
+
+Valores entre aspas (simples ou duplas) que ocupam várias linhas reais são
+reconhecidos como **um único par** e mascarados normalmente — nenhuma linha
+interna aparece na saída:
+
+```bash
+# .env
+PRIVATE_KEY="-----BEGIN PRIVATE KEY-----
+conteudo-secreto
+-----END PRIVATE KEY-----"  # chave local
+
+# .env.example
+PRIVATE_KEY=your_value_here  # chave local
+```
+
+O comentário depois da aspa final é preservado. `# envstencil:keep` também
+funciona (inline ou na linha acima) e, nesse caso, o valor multi-linha é
+mantido por inteiro.
+
+Se a aspa **nunca fecha**, a geração aborta com erro — o envstencil não tenta
+adivinhar onde o valor termina.
+
+## Sintaxe suportada
+
+O envstencil entende o suficiente da sintaxe dotenv para localizar pares com
+segurança:
+
+- `KEY=valor`, com `export` opcional;
+- chaves `[A-Za-z_][A-Za-z0-9_.-]*` — aceita `.` e `-` (ex.: `my.app.key`,
+  `my-setting`);
+- aspas simples e duplas, inclusive multi-linha; dentro de aspas duplas, `\"`
+  não encerra o valor;
+- comentários `#`, de linha inteira e inline, preservados;
+- diretiva `# envstencil:keep`.
+
+**Não** são interpretados: expansão de `${VAR}`, execução de comandos,
+interpolação de shell, heredoc, nem o conteúdo do valor em si (que é sempre
+mascarado). Qualquer linha fora dessa sintaxe **interrompe a geração** em vez
+de ser copiada para o `.env.example`.
+
 ## Escolhendo origem e destino
 
 ```bash

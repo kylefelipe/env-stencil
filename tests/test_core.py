@@ -5,6 +5,7 @@ import pytest
 from envstencil.core import (
     DEFAULT_PLACEHOLDER,
     UnsafeEnvLineError,
+    UnterminatedQuotedValueError,
     generate_example,
     parse_env_file,
     render_stencil,
@@ -318,26 +319,6 @@ def test_render_stencil_rejects_unknown_line(tmp_path: Path) -> None:
         render_stencil(parse_env_file(env_file))
 
 
-def test_multiline_secret_like_content_aborts_without_leaking(
-    tmp_path: Path,
-) -> None:
-    secret = "super-secret-content"
-    env_file = tmp_path / ".env"
-    env_file.write_text(
-        'PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n'
-        f"{secret}\n"
-        '-----END PRIVATE KEY-----"\n',
-        encoding="utf-8",
-    )
-    dest = tmp_path / ".env.example"
-
-    with pytest.raises(UnsafeEnvLineError) as excinfo:
-        generate_example(env_file, dest)
-
-    assert secret not in str(excinfo.value)
-    assert not dest.exists()
-
-
 def test_unsafe_error_reports_the_offending_line_number(
     tmp_path: Path,
 ) -> None:
@@ -362,3 +343,187 @@ def test_unsafe_error_message_hides_sensitive_value(tmp_path: Path) -> None:
         render_stencil(parse_env_file(env_file))
 
     assert secret not in str(excinfo.value)
+
+
+def _render_file(tmp_path: Path, content: str) -> str:
+    env_file = tmp_path / ".env"
+    env_file.write_text(content, encoding="utf-8")
+    return render_stencil(parse_env_file(env_file))
+
+
+# --- Valores multi-linha entre aspas --------------------------------------
+
+
+def test_multiline_double_quoted_value_is_masked(tmp_path: Path) -> None:
+    secret = "super-secret"
+    rendered = _render_file(
+        tmp_path,
+        'PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n'
+        f"{secret}\n"
+        '-----END PRIVATE KEY-----"\n',
+    )
+
+    assert f"PRIVATE_KEY={DEFAULT_PLACEHOLDER}\n" in rendered
+    assert secret not in rendered
+    assert "BEGIN PRIVATE KEY" not in rendered
+
+
+def test_multiline_parsed_as_single_pair_with_line_span(
+    tmp_path: Path,
+) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        'A=1\nCERT="linha 1\nlinha 2\nlinha 3"\nB=2\n', encoding="utf-8"
+    )
+
+    lines = parse_env_file(env_file)
+    pairs = [line for line in lines if line.kind == "pair"]
+
+    assert [p.key for p in pairs] == ["A", "CERT", "B"]
+    cert = pairs[1]
+    assert cert.line_number == 2
+    assert cert.end_line_number == 4
+    assert pairs[2].line_number == 5  # B= comes after the consumed block
+
+
+def test_multiline_single_quoted_value_is_masked(tmp_path: Path) -> None:
+    rendered = _render_file(tmp_path, "VALUE='linha 1\nlinha 2'\n")
+
+    assert f"VALUE={DEFAULT_PLACEHOLDER}\n" in rendered
+    assert "linha 1" not in rendered
+
+
+def test_unterminated_quoted_value_raises_without_leaking(
+    tmp_path: Path,
+) -> None:
+    secret = "conteudo-secreto-nunca-fechado-0987654321"
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        f'TOKEN="linha 1\n{secret}\nmais-conteudo\n', encoding="utf-8"
+    )
+    dest = tmp_path / ".env.example"
+
+    with pytest.raises(UnterminatedQuotedValueError) as excinfo:
+        generate_example(env_file, dest)
+
+    assert excinfo.value.line_number == 1
+    assert excinfo.value.key == "TOKEN"
+    assert "TOKEN" in str(excinfo.value)
+    assert secret not in str(excinfo.value)
+    assert not dest.exists()
+
+
+def test_escaped_quote_does_not_close_multiline_value(tmp_path: Path) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        'TEXT="foo \\"bar\\"\nsegunda linha"\nNEXT=ok\n', encoding="utf-8"
+    )
+
+    lines = parse_env_file(env_file)
+    pairs = [line for line in lines if line.kind == "pair"]
+
+    assert [p.key for p in pairs] == ["TEXT", "NEXT"]
+    rendered = render_stencil(lines)
+    assert f"TEXT={DEFAULT_PLACEHOLDER}\n" in rendered
+    assert f"NEXT={DEFAULT_PLACEHOLDER}\n" in rendered
+    assert "segunda linha" not in rendered
+
+
+def test_inline_comment_after_multiline_value_is_kept(tmp_path: Path) -> None:
+    rendered = _render_file(
+        tmp_path, 'CERT="linha 1\nlinha 2"  # certificado\n'
+    )
+
+    assert f"CERT={DEFAULT_PLACEHOLDER}  # certificado\n" in rendered
+    assert "linha 1" not in rendered
+
+
+def test_keep_directive_above_multiline_value_preserves_it(
+    tmp_path: Path,
+) -> None:
+    rendered = _render_file(
+        tmp_path, '# envstencil:keep\nBANNER="linha 1\nlinha 2"\n'
+    )
+
+    assert 'BANNER="linha 1\nlinha 2"\n' in rendered
+    assert "envstencil" not in rendered.lower()
+
+
+def test_keep_directive_inline_on_multiline_value_preserves_it(
+    tmp_path: Path,
+) -> None:
+    rendered = _render_file(
+        tmp_path, 'BANNER="linha 1\nlinha 2"  # envstencil:keep\n'
+    )
+
+    assert 'BANNER="linha 1\nlinha 2"\n' in rendered
+    assert "envstencil" not in rendered.lower()
+
+
+# --- Chaves com ponto e hífen -------------------------------------------
+
+
+def test_dotted_and_dashed_keys_are_masked(tmp_path: Path) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "MY.APP.KEY=abc\nmy-setting=def\nexport a.b-c=ghi\n", encoding="utf-8"
+    )
+
+    lines = parse_env_file(env_file)
+    assert [line.key for line in lines if line.kind == "pair"] == [
+        "MY.APP.KEY",
+        "my-setting",
+        "a.b-c",
+    ]
+
+    rendered = render_stencil(lines)
+    assert f"MY.APP.KEY={DEFAULT_PLACEHOLDER}\n" in rendered
+    assert f"my-setting={DEFAULT_PLACEHOLDER}\n" in rendered
+    assert f"export a.b-c={DEFAULT_PLACEHOLDER}\n" in rendered
+    assert "abc" not in rendered
+
+
+def test_leading_dash_line_is_still_unknown(tmp_path: Path) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "KEY=ok\n-----BEGIN SOMETHING-----\n", encoding="utf-8"
+    )
+
+    with pytest.raises(UnsafeEnvLineError):
+        render_stencil(parse_env_file(env_file))
+
+
+# --- Outros ------------------------------------------------------------
+
+
+def test_weird_but_valid_pair_is_still_masked(tmp_path: Path) -> None:
+    rendered = _render_file(
+        tmp_path, "KEY = qualquer coisa estranha $(x) ${y}\n"
+    )
+
+    assert f"KEY={DEFAULT_PLACEHOLDER}\n" in rendered
+    assert "qualquer coisa estranha" not in rendered
+
+
+def test_line_numbers_are_consistent_with_crlf(tmp_path: Path) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_bytes(b"A=1\r\nB=2\r\n\r\nquebrada\r\n")
+
+    with pytest.raises(UnsafeEnvLineError) as excinfo:
+        render_stencil(parse_env_file(env_file))
+
+    assert excinfo.value.line_number == 4
+
+
+def test_generate_example_does_not_leave_partial_output(
+    tmp_path: Path,
+) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text('OK=1\nBAD="sem fechar\n', encoding="utf-8")
+    dest = tmp_path / ".env.example"
+
+    with pytest.raises(UnterminatedQuotedValueError):
+        generate_example(env_file, dest)
+
+    assert not dest.exists()
+    assert not (tmp_path / ".env.example.tmp").exists()
