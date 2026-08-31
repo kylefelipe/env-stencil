@@ -10,6 +10,20 @@ theme:
   favicon: assets/envstencil-symbol-1024.png
   features:
     - navigation.indexes
+  palette:
+    # Escuro por padrão (base da marca: #101722)
+    - scheme: slate
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/brightness-4
+        name: Mudar para o modo claro
+    - scheme: default
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/brightness-7
+        name: Mudar para o modo escuro
 
 nav:
   - Início: index.md
