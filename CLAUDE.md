@@ -18,9 +18,10 @@
 
 ## 3. Como trabalhar aqui
 - Ambiente de dev: `poetry install` (grupos `dev` e `doc` entram por padrão; `--without doc` para pular)
-- Testes: `poetry run task test` (`pytest -v`); cobertura: `poetry run task cov`
-- Lint/format: `poetry run task lint` / `poetry run task fmt` (`blue` + `isort`, linha 79)
-- Docs: `poetry run task docs` (`mkdocs serve`)
+- Testes: `poetry run task test` — encadeia `task lint` (pre_test), `pytest -s -x --cov=envstencil -vv` e `coverage html` (post_test)
+- Lint/format: `poetry run task lint` (check) / `poetry run task fmt` (aplica) — `black` + `isort`, linha 79, aspas duplas; rodar `fmt` antes de commitar
+- `pytest` roda com `--doctest-modules`: qualquer `>>>` em docstring vira teste
+- Docs: `poetry run task docs` (`mkdocs serve`); `poetry run mkdocs build --strict` precisa passar sem warning (griffe/links)
 - Após mexer no `pyproject.toml`, rodar `poetry lock` e commitar o `poetry.lock`
 - Instalar localmente para testar o CLI: `envstencil generate` dentro de um diretório com `.env`
 - Ao adicionar uma nova opção de tratamento de valores (ex.: mascarar só secrets), manter `DEFAULT_PLACEHOLDER` como comportamento padrão atual e expor a nova opção via flag no CLI, sem quebrar a API pública de `core.py`
@@ -34,6 +35,9 @@
 - Formatação de saída fica em `render_stencil` (ex.: `collapse_blank_lines` via `_collapse_blank_lines`), opt-in por parâmetro e exposta por flag no CLI; sem a flag, a estrutura do `.env` é espelhada 1:1
 - Mensagens de erro do CLI em português (ver `cli.py`)
 - Novas funcionalidades entram primeiro em `core.py` (lógica pura, testável) e depois são expostas via `cli.py`
+- Docstrings públicas em estilo Google (`Args:`/`Returns:`/`Raises:`/`Attributes:`), com todo parâmetro anotado documentado — são renderizadas por `mkdocstrings` e qualquer descompasso quebra `mkdocs build --strict`
+- Texto `help=` de opção Click sem `<...>`: o `mkdocs-click` renderiza como HTML e engole o trecho entre `<>` (referir o argumento como `SOURCE`, não `<source>`)
+- Ao adicionar/alterar flag do CLI: atualizar também a assinatura na seção 2, `docs/cli_usage.md` e o `README.md`
 
 ## 5. O que evitar
 - Não usar `eval`/`exec` para parsear valores do `.env`
