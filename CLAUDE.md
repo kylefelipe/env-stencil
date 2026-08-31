@@ -14,6 +14,7 @@
   - `src/envstencil/core.py` — parsing do `.env` (`parse_env_file`) e geração do stencil (`render_stencil`, `generate_example`)
   - `src/envstencil/cli.py` — comando `envstencil generate [SOURCE] [-o OUTPUT] [-p PLACEHOLDER] [-f/--force] [-b/--collapse-blank-lines]`
   - `tests/test_core.py` — testes com `pytest`, usando fixture `tmp_path`
+  - `docs/` — site MkDocs: `index.md` (landing), `cli_usage.md` (guia do CLI), `contributing.md` (setup/tasks/convenções), `api/` (autodoc de `core`), `templates/` (partials do mkdocs-macros)
 - Fluxo de dados: arquivo `.env` → `parse_env_file` (lista de `EnvLine`) → `render_stencil` (substitui valores por placeholder, preserva comentários/blank lines e valores de pares marcados com `# envstencil:keep`) → grava em `.env.example`
 
 ## 3. Como trabalhar aqui
@@ -21,7 +22,9 @@
 - Testes: `poetry run task test` — encadeia `task lint` (pre_test), `pytest -s -x --cov=envstencil -vv` e `coverage html` (post_test)
 - Lint/format: `poetry run task lint` (check) / `poetry run task fmt` (aplica) — `black` + `isort`, linha 79, aspas duplas; rodar `fmt` antes de commitar
 - `pytest` roda com `--doctest-modules`: qualquer `>>>` em docstring vira teste
-- Docs: `poetry run task docs` (`mkdocs serve`); `poetry run mkdocs build --strict` precisa passar sem warning (griffe/links)
+- Docs: `poetry run task docs` (`mkdocs serve`); `poetry run mkdocs build --strict` precisa passar sem warning (griffe/links/macros)
+- Conteúdo de doc repetido vai para partials em `docs/templates/*.md`, incluídos com `{% include "nome.md" %}` (nome puro — `include_dir` já aponta para `docs/templates`; não viram páginas). Partials atuais: `install.md`, `dev_install.md`, `example.md`
+- Nos docs, usar as variáveis macro em vez de hardcode: `{{ config.repo_url }}` (URL do repo) e `{{ commands.run }}` (= `poetry run envstencil`, definido em `mkdocs.yml` → `extra.commands`)
 - Após mexer no `pyproject.toml`, rodar `poetry lock` e commitar o `poetry.lock`
 - Instalar localmente para testar o CLI: `envstencil generate` dentro de um diretório com `.env`
 - Ao adicionar uma nova opção de tratamento de valores (ex.: mascarar só secrets), manter `DEFAULT_PLACEHOLDER` como comportamento padrão atual e expor a nova opção via flag no CLI, sem quebrar a API pública de `core.py`
@@ -37,7 +40,8 @@
 - Novas funcionalidades entram primeiro em `core.py` (lógica pura, testável) e depois são expostas via `cli.py`
 - Docstrings públicas em estilo Google (`Args:`/`Returns:`/`Raises:`/`Attributes:`), com todo parâmetro anotado documentado — são renderizadas por `mkdocstrings` e qualquer descompasso quebra `mkdocs build --strict`
 - Texto `help=` de opção Click sem `<...>`: o `mkdocs-click` renderiza como HTML e engole o trecho entre `<>` (referir o argumento como `SOURCE`, não `<source>`)
-- Ao adicionar/alterar flag do CLI: atualizar também a assinatura na seção 2, `docs/cli_usage.md` e o `README.md`
+- Ao adicionar/alterar flag do CLI: a tabela de opções em `docs/cli_usage.md` é gerada por `mkdocs-click`, mas atualizar a assinatura na seção 2, os exemplos em `docs/cli_usage.md` e o `README.md`
+- Convenções de contribuidor também resumidas em `docs/contributing.md` — manter as duas em sincronia
 
 ## 5. O que evitar
 - Não usar `eval`/`exec` para parsear valores do `.env`
