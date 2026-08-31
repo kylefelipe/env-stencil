@@ -8,25 +8,29 @@
 
 # EnvStencil
 
-Sempre quando estamos desenvolendo, é comum a gente criar um arquivo `.env` com as variáveis de ambiente necessárias e depois ter de gerar um arquivo `.env.example` para que outros desenvolvedores possam criar o seu próprio `.env` a partir dele.
+Sempre quando estamos desenvolvendo, é comum a gente criar um arquivo `.env` com as variáveis de ambiente necessárias e depois ter de gerar um arquivo `.env.example` para que outros desenvolvedores possam criar o seu próprio `.env` a partir dele.
 
 O problema é que essa é uma tarefa muito chata e repetitiva, então o `envstencil` foi criado para automatizar esse processo.
 
-Caso o arquivo `.env` contenha variáveis que não precisam ser sobreescritas no `.env.example`, você pode adicionar o comentário `# envstencil:keep` na linha da variável que deseja manter ou na linha anterior.
+Caso o arquivo `.env` contenha variáveis que não precisam ser sobrescritas no `.env.example`, você pode adicionar o comentário `# envstencil:keep` na linha da variável que deseja manter ou na linha anterior.
 
 ## Instalação
 
-- Utilizando o poetry
+**pip** — do PyPI ou direto do git:
 
-    ```bash
-    poetry install
-    ```
+```bash
+pip install envstencil
+pip install git+https://github.com/kylefelipe/env-stencil.git
+```
 
-- Utilizando o pip
+**Poetry** — adiciona `envstencil` como dependência do seu projeto:
 
-    ```bash
-    pip install -e .
-    ```
+```bash
+poetry add envstencil
+poetry add git+https://github.com/kylefelipe/env-stencil.git
+```
+
+Com o repositório já clonado: `pip install .` (ou `poetry install`).
 
 ## Uso
 
@@ -79,8 +83,8 @@ Tarefas (via [taskipy](https://github.com/taskipy/taskipy)):
 ```bash
 poetry run task test    # pytest -v
 poetry run task cov     # cobertura
-poetry run task lint    # blue --check + isort --check
-poetry run task fmt     # aplica isort + blue
+poetry run task lint    # black --check + isort --check
+poetry run task fmt     # aplica isort + black
 poetry run task docs    # mkdocs serve
 ```
 
