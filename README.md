@@ -6,6 +6,10 @@
   Gere um <code>.env.example</code> seguro a partir do seu <code>.env</code>, automaticamente.
 </p>
 
+<p align="center">
+  📖 <a href="https://env-stencil.readthedocs.io/pt/latest/">Documentação completa</a>
+</p>
+
 # EnvStencil
 
 Sempre quando estamos desenvolvendo, é comum a gente criar um arquivo `.env` com as variáveis de ambiente necessárias e depois ter de gerar um arquivo `.env.example` para que outros desenvolvedores possam criar o seu próprio `.env` a partir dele.
@@ -78,4 +82,4 @@ sozinho instala só o runtime:
 poetry install --with dev,doc
 ```
 
-Tarefas, convenções e fluxo de PR em [docs/contributing.md](docs/contributing.md).
+Tarefas, convenções e fluxo de PR: **[Contribuindo](https://env-stencil.readthedocs.io/pt/latest/contributing/)**.
