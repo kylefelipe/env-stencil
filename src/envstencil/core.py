@@ -310,6 +310,32 @@ def _collapse_blank_lines(rows: list[str]) -> list[str]:
     return collapsed
 
 
+def _assert_no_unknown(lines: list[EnvLine]) -> None:
+    """Abort on the first `kind == "unknown"` entry (fail-safe)."""
+    for line in lines:
+        if line.kind == "unknown":
+            raise UnsafeEnvLineError(line.line_number, line.raw)
+
+
+def _atomic_write(destination: Path, content: str) -> None:
+    """Write `content` to `destination` via a temp file + `os.replace`.
+
+    A failure never leaves `destination` half-written or a stray `.tmp`.
+    """
+    tmp = destination.with_name(destination.name + ".tmp")
+    tmp.write_text(content, encoding="utf-8")
+    try:
+        os.replace(tmp, destination)
+    except OSError:
+        tmp.unlink(missing_ok=True)
+        raise
+
+
+def get_keys(lines: list[EnvLine]) -> set[str]:
+    """Return the set of variable names among `kind == "pair"` entries."""
+    return {line.key for line in lines if line.kind == "pair" and line.key}
+
+
 def render_stencil(
     lines: list[EnvLine],
     placeholder: str = DEFAULT_PLACEHOLDER,
@@ -340,11 +366,11 @@ def render_stencil(
         UnsafeEnvLineError: If any line is `kind == "unknown"`.
     """
 
+    _assert_no_unknown(lines)
+
     output_lines: list[str] = []
 
     for line in lines:
-        if line.kind == "unknown":
-            raise UnsafeEnvLineError(line.line_number, line.raw)
         if line.kind in ("comment", "blank"):
             output_lines.append(line.raw)
         elif line.kind == "pair":
@@ -392,7 +418,8 @@ def generate_example(
 
     if destination.exists() and not force:
         raise FileExistsError(
-            f"{destination} já existe. Use --force para sobrescrever."
+            f"{destination} já existe. Use --force para sobrescrever ou "
+            f"--append para adicionar apenas as novas variáveis."
         )
 
     # Read → parse → render fully before touching the destination, then swap
@@ -404,12 +431,111 @@ def generate_example(
         placeholder=placeholder,
         collapse_blank_lines=collapse_blank_lines,
     )
-
-    tmp = destination.with_name(destination.name + ".tmp")
-    tmp.write_text(content, encoding="utf-8")
-    try:
-        os.replace(tmp, destination)
-    except OSError:
-        tmp.unlink(missing_ok=True)
-        raise
+    _atomic_write(destination, content)
     return destination
+
+
+@dataclass
+class AppendResult:
+    """Outcome of `append_missing_variables`.
+
+    Attributes:
+        destination: The `.env.example` path.
+        added_keys: Keys added to it, in `.env` order (empty when nothing
+            changed).
+        created: `True` when the destination did not exist and a full
+            stencil was generated instead of appending.
+    """
+
+    destination: Path
+    added_keys: list[str]
+    created: bool
+
+
+def _append_block(original: str, block: str) -> str:
+    """Return `original` with `block` appended after exactly one blank line.
+
+    `original` is kept byte-for-byte; only a separator sized to leave a
+    single blank line between the last existing line and the block is added
+    (none extra when the file already ends with a blank line).
+    """
+    if not original.strip():
+        return block
+    if original.endswith("\n\n"):
+        separator = ""
+    elif original.endswith("\n"):
+        separator = "\n"
+    else:
+        separator = "\n\n"
+    return original + separator + block
+
+
+def append_missing_variables(
+    source: Path,
+    destination: Path,
+    placeholder: str = DEFAULT_PLACEHOLDER,
+) -> AppendResult:
+    """Add to `destination` only the `.env` keys it does not have yet.
+
+    The existing `.env.example` is preserved byte-for-byte (comments, order,
+    spacing, manual grouping); the new variables are appended at the end,
+    masked with `placeholder`, in the order they appear in `source`. Keys are
+    compared by name, never by line content, and never duplicated.
+
+    If `destination` does not exist, a full stencil is generated instead
+    (same as `generate_example` without flags on a missing target). If every
+    key is already present, nothing is written and the file is left
+    untouched.
+
+    Args:
+        source: Path to the source `.env` file.
+        destination: Path of the `.env.example` to update.
+        placeholder: Text that replaces each new value.
+
+    Returns:
+        An `AppendResult` describing what happened.
+
+    Raises:
+        FileNotFoundError: If `source` does not exist.
+        EnvParseError: If `source` or an existing `destination` has a line
+            that cannot be parsed safely. Nothing is written in that case.
+    """
+    if not source.exists():
+        raise FileNotFoundError(f"Arquivo de origem não encontrado: {source}")
+
+    source_lines = parse_env_file(source)
+    _assert_no_unknown(source_lines)
+
+    if not destination.exists():
+        content = render_stencil(source_lines, placeholder=placeholder)
+        _atomic_write(destination, content)
+        added = [
+            line.key
+            for line in source_lines
+            if line.kind == "pair" and line.key
+        ]
+        return AppendResult(destination, added, created=True)
+
+    dest_lines = parse_env_file(destination)
+    _assert_no_unknown(dest_lines)
+    existing = get_keys(dest_lines)
+
+    missing: list[EnvLine] = []
+    seen: set[str] = set()
+    for line in source_lines:
+        if line.kind != "pair" or not line.key:
+            continue
+        if line.key in existing or line.key in seen:
+            continue
+        seen.add(line.key)
+        missing.append(line)
+
+    if not missing:
+        return AppendResult(destination, [], created=False)
+
+    block = render_stencil(missing, placeholder=placeholder)
+    original = destination.read_text(encoding="utf-8")
+    _atomic_write(destination, _append_block(original, block))
+    return AppendResult(
+        destination, [line.key for line in missing], created=False
+    )

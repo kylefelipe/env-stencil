@@ -78,3 +78,98 @@ def test_generate_masks_multiline_value(tmp_path: Path, monkeypatch) -> None:
     assert result.exit_code == 0
     out = Path(".env.example").read_text(encoding="utf-8")
     assert out == "KEY=your_value_here\n"
+
+
+# --- generate --append -------------------------------------------------
+
+
+def test_append_reports_added_keys_without_values(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    Path(".env").write_text(
+        "A=1\nSMTP_HOST=smtp.example.com\nSMTP_PASSWORD=super-secret\n",
+        encoding="utf-8",
+    )
+    Path(".env.example").write_text("A=your_value_here\n", encoding="utf-8")
+
+    result = CliRunner().invoke(main, ["generate", "--append"])
+
+    assert result.exit_code == 0
+    assert "SMTP_HOST" in result.output
+    assert "SMTP_PASSWORD" in result.output
+    assert "2 novas variáveis adicionadas" in result.output
+    assert "super-secret" not in result.output
+    assert "smtp.example.com" not in result.output
+
+
+def test_append_singular_message_for_one_key(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    Path(".env").write_text("A=1\nNEW=2\n", encoding="utf-8")
+    Path(".env.example").write_text("A=your_value_here\n", encoding="utf-8")
+
+    result = CliRunner().invoke(main, ["generate", "--append"])
+
+    assert result.exit_code == 0
+    assert "1 nova variável adicionada" in result.output
+    assert "+ NEW" in result.output
+
+
+def test_append_no_changes_message_and_no_rewrite(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    Path(".env").write_text("A=1\nB=2\n", encoding="utf-8")
+    Path(".env.example").write_text(
+        "B=your_value_here\nA=your_value_here\n", encoding="utf-8"
+    )
+    before = Path(".env.example").read_bytes()
+
+    result = CliRunner().invoke(main, ["generate", "--append"])
+
+    assert result.exit_code == 0
+    assert "já está atualizado" in result.output
+    assert Path(".env.example").read_bytes() == before
+
+
+def test_generate_no_flags_on_existing_target_suggests_both_options(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    Path(".env").write_text("A=1\n", encoding="utf-8")
+    Path(".env.example").write_text("conteudo manual\n", encoding="utf-8")
+
+    result = CliRunner().invoke(main, ["generate"])
+
+    assert result.exit_code != 0
+    assert "--force" in result.output
+    assert "--append" in result.output
+    assert (
+        Path(".env.example").read_text(encoding="utf-8") == "conteudo manual\n"
+    )
+
+
+def test_append_and_force_together_fail(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    Path(".env").write_text("A=1\n", encoding="utf-8")
+
+    result = CliRunner().invoke(main, ["generate", "--append", "--force"])
+
+    assert result.exit_code != 0
+    assert "juntos" in result.output
+
+
+def test_append_generates_when_target_missing(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    Path(".env").write_text("A=1\nB=2\n", encoding="utf-8")
+
+    result = CliRunner().invoke(main, ["generate", "--append"])
+
+    assert result.exit_code == 0
+    assert Path(".env.example").read_text(encoding="utf-8") == (
+        "A=your_value_here\nB=your_value_here\n"
+    )

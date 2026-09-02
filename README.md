@@ -60,6 +60,9 @@ envstencil generate --placeholder "CHANGE_ME"
 
 # Sobrescrever arquivo existente
 envstencil generate --force
+
+# Adiciona apenas variáveis ausentes ao .env.example existente
+envstencil generate --append
 ```
 
 ## Exemplo

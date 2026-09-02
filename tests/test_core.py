@@ -4,9 +4,12 @@ import pytest
 
 from envstencil.core import (
     DEFAULT_PLACEHOLDER,
+    AppendResult,
     UnsafeEnvLineError,
     UnterminatedQuotedValueError,
+    append_missing_variables,
     generate_example,
+    get_keys,
     parse_env_file,
     render_stencil,
 )
@@ -527,3 +530,260 @@ def test_generate_example_does_not_leave_partial_output(
 
     assert not dest.exists()
     assert not (tmp_path / ".env.example.tmp").exists()
+
+
+# --- append_missing_variables --------------------------------------------
+
+
+def _write(path: Path, text: str) -> Path:
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+def test_append_adds_only_missing_keys_in_env_order(tmp_path: Path) -> None:
+    src = _write(tmp_path / ".env", "A=1\nB=2\nC=3\n")
+    dest = _write(tmp_path / ".env.example", "A=your_value_here\n")
+
+    result = append_missing_variables(src, dest)
+
+    assert isinstance(result, AppendResult)
+    assert result.created is False
+    assert result.added_keys == ["B", "C"]
+    assert dest.read_text(encoding="utf-8") == (
+        "A=your_value_here\n\nB=your_value_here\nC=your_value_here\n"
+    )
+
+
+def test_append_never_duplicates_existing_keys(tmp_path: Path) -> None:
+    src = _write(tmp_path / ".env", "A=1\nB=2\n")
+    dest = _write(tmp_path / ".env.example", "B=algo\nA=outra\n")
+
+    result = append_missing_variables(src, dest)
+
+    assert result.added_keys == []
+    assert dest.read_text(encoding="utf-8") == "B=algo\nA=outra\n"
+
+
+def test_append_preserves_existing_content_verbatim(tmp_path: Path) -> None:
+    existing = (
+        "# Banco de dados\n"
+        "DATABASE_URL=your_value_here   # conexão principal\n"
+        "\n"
+        "\n"
+        "# Cache (mantido pela equipe)\n"
+        "REDIS_URL=CHANGE_ME\n"
+    )
+    src = _write(
+        tmp_path / ".env",
+        "DATABASE_URL=x\nREDIS_URL=y\nNEW_ONE=z\n",
+    )
+    dest = _write(tmp_path / ".env.example", existing)
+
+    append_missing_variables(src, dest)
+
+    out = dest.read_text(encoding="utf-8")
+    assert out.startswith(existing)
+    assert out == existing + "\nNEW_ONE=your_value_here\n"
+
+
+def test_append_uses_custom_placeholder(tmp_path: Path) -> None:
+    src = _write(tmp_path / ".env", "A=1\nNEW_API_KEY=real-secret\n")
+    dest = _write(tmp_path / ".env.example", "A=your_value_here\n")
+
+    append_missing_variables(src, dest, placeholder="CHANGE_ME")
+
+    out = dest.read_text(encoding="utf-8")
+    assert "NEW_API_KEY=CHANGE_ME\n" in out
+    assert "real-secret" not in out
+
+
+def test_append_honours_keep_directive(tmp_path: Path) -> None:
+    src = _write(
+        tmp_path / ".env",
+        "A=1\nPORT=8000 # envstencil:keep\n# envstencil:keep\nHOST=local\n",
+    )
+    dest = _write(tmp_path / ".env.example", "A=your_value_here\n")
+
+    result = append_missing_variables(src, dest)
+
+    assert result.added_keys == ["PORT", "HOST"]
+    out = dest.read_text(encoding="utf-8")
+    assert "PORT=8000\n" in out
+    assert "HOST=local\n" in out
+    assert "envstencil" not in out.lower()
+
+
+def test_append_keeps_env_order_for_new_keys(tmp_path: Path) -> None:
+    src = _write(tmp_path / ".env", "Z=1\nM=2\nA=3\n")
+    dest = _write(tmp_path / ".env.example", "# vazio de propósito\n")
+
+    result = append_missing_variables(src, dest)
+
+    assert result.added_keys == ["Z", "M", "A"]
+    assert dest.read_text(encoding="utf-8").splitlines()[-3:] == [
+        "Z=your_value_here",
+        "M=your_value_here",
+        "A=your_value_here",
+    ]
+
+
+def test_append_no_changes_does_not_rewrite_file(tmp_path: Path) -> None:
+    src = _write(tmp_path / ".env", "A=1\nB=2\n")
+    dest = _write(
+        tmp_path / ".env.example", "B=your_value_here\nA=your_value_here\n"
+    )
+    before_bytes = dest.read_bytes()
+    before_mtime = dest.stat().st_mtime_ns
+
+    result = append_missing_variables(src, dest)
+
+    assert result.added_keys == []
+    assert result.created is False
+    assert dest.read_bytes() == before_bytes
+    assert dest.stat().st_mtime_ns == before_mtime
+
+
+def test_append_generates_full_stencil_when_destination_missing(
+    tmp_path: Path,
+) -> None:
+    src = _write(tmp_path / ".env", "# grupo\nA=1\nB=2\n")
+    dest = tmp_path / ".env.example"
+
+    result = append_missing_variables(src, dest)
+
+    assert result.created is True
+    assert result.added_keys == ["A", "B"]
+    assert dest.read_text(encoding="utf-8") == (
+        "# grupo\nA=your_value_here\nB=your_value_here\n"
+    )
+
+
+def test_append_aborts_on_unknown_line_in_source(tmp_path: Path) -> None:
+    src = _write(tmp_path / ".env", "A=1\nlinha invalida sem igual\n")
+    dest = _write(tmp_path / ".env.example", "A=your_value_here\n")
+    before = dest.read_bytes()
+
+    with pytest.raises(UnsafeEnvLineError):
+        append_missing_variables(src, dest)
+
+    assert dest.read_bytes() == before
+    assert not (tmp_path / ".env.example.tmp").exists()
+
+
+def test_append_aborts_on_unknown_line_in_destination(tmp_path: Path) -> None:
+    src = _write(tmp_path / ".env", "A=1\nB=2\n")
+    dest = _write(
+        tmp_path / ".env.example",
+        "A=your_value_here\n??? linha estranha\n",
+    )
+    before = dest.read_bytes()
+
+    with pytest.raises(UnsafeEnvLineError):
+        append_missing_variables(src, dest)
+
+    assert dest.read_bytes() == before
+
+
+def test_append_aborts_on_unterminated_quote_without_leaking(
+    tmp_path: Path,
+) -> None:
+    secret = "segredo-sem-fechamento-13572468"
+    src = _write(tmp_path / ".env", f'A=1\nCERT="abre aqui\n{secret}\n')
+    dest = _write(tmp_path / ".env.example", "A=your_value_here\n")
+
+    with pytest.raises(UnterminatedQuotedValueError) as excinfo:
+        append_missing_variables(src, dest)
+
+    assert secret not in str(excinfo.value)
+    assert dest.read_text(encoding="utf-8") == "A=your_value_here\n"
+
+
+def test_append_masks_multiline_value(tmp_path: Path) -> None:
+    src = _write(
+        tmp_path / ".env",
+        'A=1\nCERT="linha 1\nlinha 2\nlinha 3"\n',
+    )
+    dest = _write(tmp_path / ".env.example", "A=your_value_here\n")
+
+    result = append_missing_variables(src, dest)
+
+    assert result.added_keys == ["CERT"]
+    out = dest.read_text(encoding="utf-8")
+    assert "CERT=your_value_here\n" in out
+    assert "linha 2" not in out
+
+
+def test_get_keys_returns_only_pair_keys(tmp_path: Path) -> None:
+    lines = parse_env_file(
+        _write(tmp_path / ".env", "# c\nA=1\n\nB=2\nexport C.d=3\n")
+    )
+    assert get_keys(lines) == {"A", "B", "C.d"}
+
+
+def test_append_separator_when_file_has_no_trailing_newline(
+    tmp_path: Path,
+) -> None:
+    src = _write(tmp_path / ".env", "A=1\nB=2\n")
+    dest = tmp_path / ".env.example"
+    dest.write_bytes(b"A=your_value_here")  # no trailing newline
+
+    append_missing_variables(src, dest)
+
+    assert dest.read_text(encoding="utf-8") == (
+        "A=your_value_here\n\nB=your_value_here\n"
+    )
+
+
+def test_append_does_not_add_extra_blank_when_file_ends_blank(
+    tmp_path: Path,
+) -> None:
+    src = _write(tmp_path / ".env", "A=1\nB=2\n")
+    dest = _write(tmp_path / ".env.example", "A=your_value_here\n\n")
+
+    append_missing_variables(src, dest)
+
+    assert dest.read_text(encoding="utf-8") == (
+        "A=your_value_here\n\nB=your_value_here\n"
+    )
+
+
+def test_append_into_empty_destination_file(tmp_path: Path) -> None:
+    src = _write(tmp_path / ".env", "A=1\n")
+    dest = _write(tmp_path / ".env.example", "")
+
+    result = append_missing_variables(src, dest)
+
+    assert result.added_keys == ["A"]
+    assert dest.read_text(encoding="utf-8") == "A=your_value_here\n"
+
+
+def test_append_raises_when_source_missing(tmp_path: Path) -> None:
+    with pytest.raises(FileNotFoundError):
+        append_missing_variables(
+            tmp_path / "nao-existe.env", tmp_path / ".env.example"
+        )
+
+
+def test_append_deduplicates_repeated_keys_in_source(tmp_path: Path) -> None:
+    src = _write(tmp_path / ".env", "NEW=1\nOLD=2\nNEW=3\n")
+    dest = _write(tmp_path / ".env.example", "OLD=your_value_here\n")
+
+    result = append_missing_variables(src, dest)
+
+    assert result.added_keys == ["NEW"]
+    assert dest.read_text(encoding="utf-8").count("NEW=") == 1
+
+
+def test_append_ignores_comments_and_blanks_in_source(tmp_path: Path) -> None:
+    src = _write(
+        tmp_path / ".env",
+        "# um comentário\n\nOLD=1\n\n# outro\nNEW=2\n",
+    )
+    dest = _write(tmp_path / ".env.example", "OLD=your_value_here\n")
+
+    result = append_missing_variables(src, dest)
+
+    assert result.added_keys == ["NEW"]
+    assert dest.read_text(encoding="utf-8") == (
+        "OLD=your_value_here\n\nNEW=your_value_here\n"
+    )

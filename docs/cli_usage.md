@@ -125,20 +125,78 @@ Sem `-o`, o destino é `<origem>.example` no mesmo diretório
 {{ commands.run }} generate -p CHANGE_ME
 ```
 
-## Sobrescrevendo um `.env.example` existente
+## Atualizando um `.env.example` existente
 
-Por segurança, o comando não sobrescreve um arquivo que já existe:
+Há três modos, todos pelo mesmo comando:
+
+| Comando | Comportamento |
+| ------- | ------------- |
+| `{{ commands.run }} generate` | cria o arquivo **só se ele ainda não existir**; se existir, aborta sem tocar em nada |
+| `{{ commands.run }} generate --force` | **regenera e sobrescreve** o `.env.example` por completo |
+| `{{ commands.run }} generate --append` | **preserva** o `.env.example` e acrescenta ao final só as chaves do `.env` que ainda faltam |
+
+Sem flags, num arquivo que já existe:
 
 ```console
 $ {{ commands.run }} generate
-Error: .env.example já existe. Use --force para sobrescrever.
+Error: .env.example já existe. Use --force para sobrescrever ou --append para adicionar apenas as novas variáveis.
 ```
 
-Passe `-f` / `--force` para permitir:
+### `--append`
+
+Compara pela **chave** (nunca pelo conteúdo da linha) e nunca duplica uma
+variável já presente. O conteúdo existente — comentários, ordem, placeholders,
+espaços, seções feitas pela equipe — não é reformatado; as novas entradas
+entram no fim, na ordem em que aparecem no `.env`, mascaradas com o
+placeholder (a diretiva `# envstencil:keep` continua valendo).
 
 ```bash
-{{ commands.run }} generate --force
+# .env
+DATABASE_URL=postgres://user:pass@localhost/db
+REDIS_URL=redis://localhost:6379
+SMTP_HOST=smtp.example.com
+SMTP_PASSWORD=super-secret
 ```
+
+```bash
+# .env.example  (antes)
+# Database
+DATABASE_URL=your_value_here
+
+# Cache
+REDIS_URL=your_value_here
+```
+
+```console
+$ {{ commands.run }} generate --append
+✅ .env.example atualizado.
+
+2 novas variáveis adicionadas:
+  + SMTP_HOST
+  + SMTP_PASSWORD
+```
+
+```bash
+# .env.example  (depois)
+# Database
+DATABASE_URL=your_value_here
+
+# Cache
+REDIS_URL=your_value_here
+
+SMTP_HOST=your_value_here
+SMTP_PASSWORD=your_value_here
+```
+
+Se **nenhuma** variável estiver faltando, o arquivo não é reescrito:
+
+```console
+$ {{ commands.run }} generate --append
+✓ .env.example já está atualizado.
+```
+
+Se o `.env.example` **ainda não existir**, `--append` gera o arquivo completo,
+como um `generate` normal. `--append` e `--force` não podem ser usados juntos.
 
 ## Limpando linhas em branco
 

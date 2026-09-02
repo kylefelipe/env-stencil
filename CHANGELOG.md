@@ -7,6 +7,19 @@ e este projeto segue o [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+### Added
+
+- Nova opção `envstencil generate --append` para adicionar ao `.env.example`
+  apenas as variáveis presentes no `.env` que ainda faltam, preservando todo o
+  conteúdo existente (comentários, ordem, placeholders, seções). Compara por
+  chave, nunca duplica e nunca copia valores (salvo `# envstencil:keep`). Se o
+  destino não existir, gera o arquivo completo; se nada faltar, não reescreve.
+
+### Changed
+
+- A mensagem de erro de `generate` quando o `.env.example` já existe agora
+  cita as duas saídas: `--force` (regenera) e `--append` (completa).
+
 ## [0.2.0] - 2026-08-31
 
 ### Added

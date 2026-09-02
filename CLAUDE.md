@@ -5,7 +5,8 @@
 - Todo valor no `.env.example` gerado deve usar o placeholder configurado (padrão: `your_value_here`) — nunca vazar o valor original. Única exceção: pares explicitamente marcados com `# envstencil:keep` (inline ou na linha de cima), cujo valor real é mantido de propósito
 - Fail-safe: linha que o parser não classifica (`kind == "unknown"`) NUNCA é copiada — `render_stencil` aborta com `UnsafeEnvLineError`. Valor entre aspas que não fecha aborta com `UnterminatedQuotedValueError` (ambos herdam de `EnvParseError`). `generate_example` não grava nem sobrescreve nada. Filosofia: entendeu com segurança → sanitiza; não entendeu → aborta. Proibido fallback que copie conteúdo cru
 - Erros de parsing nunca imprimem o valor/conteúdo da linha — só `line_number`, `key` (quando estrutural) e, para `unknown`, `_safe_preview` (só o comprimento). Novo caso de parsing exige teste que confirme isso
-- `generate_example` escreve de forma atômica (arquivo temporário + `os.replace`); falha nunca deixa `.env.example` pela metade
+- `generate_example` e `append_missing_variables` escrevem de forma atômica (`_atomic_write`: temp + `os.replace`); qualquer falha aborta antes da escrita e não deixa `.env.example` pela metade nem `.tmp`
+- Projeto é **CLI-only**: nada de GUI/TUI/dashboard/prompts interativos/watch mode
 - Manter compatibilidade com Python >= 3.10 (ver `pyproject.toml`, `requires-python`)
 - Rodar `poetry run task test` (ou `poetry run pytest`) antes de considerar qualquer mudança em `core.py` concluída
 
@@ -14,8 +15,8 @@
 - Stack: Python puro (stdlib `re`, `pathlib`, `dataclasses`) + `click` para CLI
 - Build/gestão: Poetry 2.x (build-backend `poetry-core`); metadados em `[project]` (PEP 621), grupos `dev`/`doc` em `[tool.poetry.group.*]`, ambos `optional = true` (só instalam com `--with`)
 - Estrutura:
-  - `src/envstencil/core.py` — parsing do `.env` (`parse_env_file`) e geração do stencil (`render_stencil`, `generate_example`)
-  - `src/envstencil/cli.py` — comando `envstencil generate [SOURCE] [-o OUTPUT] [-p PLACEHOLDER] [-f/--force] [-b/--collapse-blank-lines]`
+  - `src/envstencil/core.py` — parsing do `.env` (`parse_env_file`), geração do stencil (`render_stencil`, `generate_example`) e atualização incremental (`append_missing_variables` → `AppendResult`; helper `get_keys`)
+  - `src/envstencil/cli.py` — comando `envstencil generate [SOURCE] [-o OUTPUT] [-p PLACEHOLDER] [-f/--force] [-a/--append] [-b/--collapse-blank-lines]`
   - `tests/test_core.py`, `tests/test_cli.py` — testes com `pytest` (`tmp_path`; CLI via `click.testing.CliRunner`)
   - `docs/` — site MkDocs: `index.md` (landing), `cli_usage.md` (guia do CLI), `contributing.md` (setup/tasks/convenções), `api/` (autodoc de `core`), `templates/` (partials do mkdocs-macros)
   - `.github/workflows/` — `ci.yml` (testes + cobertura no Codecov, em push/PR) e `publica-pypi.yml` (publica no PyPI ao criar GitHub Release)
@@ -44,6 +45,9 @@
 - Diretiva `# envstencil:keep` (regex `_KEEP_MARKER_RE`, case-insensitive): vale como comentário inline no par ou como comentário isolado na linha de cima (aplicada ao próximo par, tolerando blank lines)
 - A própria diretiva `envstencil:keep` nunca aparece no stencil: linha isolada só com a diretiva é descartada; inline, é removida via `_strip_keep_marker`, que preserva o resto do comentário e normaliza para um único espaço antes do `#`. Par renderizado sempre como `{prefix}{key}={valor_ou_placeholder}{inline_comment}`
 - Formatação de saída fica em `render_stencil` (ex.: `collapse_blank_lines` via `_collapse_blank_lines`), opt-in por parâmetro e exposta por flag no CLI; sem a flag, a estrutura do `.env` é espelhada 1:1
+- Três modos de `generate`: sem flag cria só se o destino não existir (senão aborta — a mensagem cita `--force` e `--append`); `--force` regenera/sobrescreve tudo; `--append` preserva o destino e só acrescenta chaves ausentes. `--append` nunca implica `--force`; os dois juntos → `click.UsageError`
+- `append_missing_variables` (core): compara por **chave** (`get_keys`, só `kind == "pair"`), nunca duplica, novas entradas na ordem do `.env`, mascaradas com o placeholder (respeitando `# envstencil:keep`). Conteúdo existente do `.env.example` é preservado byte-a-byte; separador de no máx. 1 linha em branco antes do bloco novo; nada a adicionar → não reescreve. Destino inexistente → gera o stencil completo. Reusa `parse_env_file` nos dois arquivos (sem 2º parser); `unknown` em qualquer um dos dois → aborta
+- CLI de `--append` nunca imprime valores — só nomes de chave (`+ KEY`)
 - Mensagens de erro do CLI em português (ver `cli.py`)
 - Novas funcionalidades entram primeiro em `core.py` (lógica pura, testável) e depois são expostas via `cli.py`
 - Docstrings públicas em estilo Google (`Args:`/`Returns:`/`Raises:`/`Attributes:`), com todo parâmetro anotado documentado — são renderizadas por `mkdocstrings` e qualquer descompasso quebra `mkdocs build --strict`
@@ -54,6 +58,7 @@
 ## 5. O que evitar
 - Não usar `eval`/`exec` para parsear valores do `.env`
 - Não adicionar dependências pesadas — o projeto é intencionalmente enxuto (`click` é a única dependência de runtime)
+- `--append` só **acrescenta** chaves ausentes: não remove variáveis antigas, não reordena nem reformata o `.env.example`, não edita o `.env`. Comandos `check`/`sync`, watch mode e integração com Git não fazem parte do escopo
 - Não sobrescrever `.env.example` sem `--force`
 
 ## 6. Versionamento, changelog e releases

@@ -61,4 +61,4 @@ plugins:
 
 extra:
   commands:
-    run: poetry run envstencil
+    run: envstencil
