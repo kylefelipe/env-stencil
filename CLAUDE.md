@@ -15,8 +15,8 @@
 - Stack: Python puro (stdlib `re`, `pathlib`, `dataclasses`) + `click` para CLI
 - Build/gestão: Poetry 2.x (build-backend `poetry-core`); metadados em `[project]` (PEP 621), grupos `dev`/`doc` em `[tool.poetry.group.*]`, ambos `optional = true` (só instalam com `--with`)
 - Estrutura:
-  - `src/envstencil/core.py` — parsing do `.env` (`parse_env_file`), geração do stencil (`render_stencil`, `generate_example`) e atualização incremental (`append_missing_variables` → `AppendResult`; helper `get_keys`)
-  - `src/envstencil/cli.py` — comando `envstencil generate [SOURCE] [-o OUTPUT] [-p PLACEHOLDER] [-f/--force] [-a/--append] [-b/--collapse-blank-lines]`
+  - `src/envstencil/core.py` — parsing do `.env` (`parse_env_file`), geração do stencil (`render_stencil`, `generate_example`), atualização incremental (`append_missing_variables` → `AppendResult`) e comparação de chaves (`compare_env_files` → `EnvComparison`); helpers `get_keys` / `_ordered_keys`
+  - `src/envstencil/cli.py` — comandos `envstencil generate [SOURCE] [-o OUTPUT] [-p PLACEHOLDER] [-f/--force] [-a/--append] [-b/--collapse-blank-lines]` e `envstencil check [SOURCE] [-e/--example EXAMPLE] [--diff/--dif]`
   - `tests/test_core.py`, `tests/test_cli.py` — testes com `pytest` (`tmp_path`; CLI via `click.testing.CliRunner`)
   - `docs/` — site MkDocs: `index.md` (landing), `cli_usage.md` (guia do CLI), `contributing.md` (setup/tasks/convenções), `api/` (autodoc de `core`), `templates/` (partials do mkdocs-macros)
   - `.github/workflows/` — `ci.yml` (testes + cobertura no Codecov, em push/PR) e `publica-pypi.yml` (publica no PyPI ao criar GitHub Release)
@@ -47,7 +47,9 @@
 - Formatação de saída fica em `render_stencil` (ex.: `collapse_blank_lines` via `_collapse_blank_lines`), opt-in por parâmetro e exposta por flag no CLI; sem a flag, a estrutura do `.env` é espelhada 1:1
 - Três modos de `generate`: sem flag cria só se o destino não existir (senão aborta — a mensagem cita `--force` e `--append`); `--force` regenera/sobrescreve tudo; `--append` preserva o destino e só acrescenta chaves ausentes. `--append` nunca implica `--force`; os dois juntos → `click.UsageError`
 - `append_missing_variables` (core): compara por **chave** (`get_keys`, só `kind == "pair"`), nunca duplica, novas entradas na ordem do `.env`, mascaradas com o placeholder (respeitando `# envstencil:keep`). Conteúdo existente do `.env.example` é preservado byte-a-byte; separador de no máx. 1 linha em branco antes do bloco novo; nada a adicionar → não reescreve. Destino inexistente → gera o stencil completo. Reusa `parse_env_file` nos dois arquivos (sem 2º parser); `unknown` em qualquer um dos dois → aborta
-- CLI de `--append` nunca imprime valores — só nomes de chave (`+ KEY`)
+- `compare_env_files` (core, comando `check`): **read-only** — nunca cria/altera arquivo nem escreve `.tmp`. Compara só nomes de chave (nunca valores), reusa `parse_env_file` nos dois arquivos, `unknown`/aspa não fechada em qualquer um → aborta. `EnvComparison` com `missing_in_source`/`missing_in_example` (ordem do arquivo de origem de cada chave, via `_ordered_keys`) e `is_synced`. `# envstencil:keep` não influencia. Não corrigir divergências automaticamente (nada de chamar `--append` sozinho)
+- CLI nunca imprime valores — `--append` e `check --diff` mostram só nomes de chave (`+ KEY` / `- KEY`)
+- Exit codes do `check`: `0` sincronizado, `1` divergências, `2` erro de leitura/parsing (via `_InputError(exit_code=2)`)
 - Mensagens de erro do CLI em português (ver `cli.py`)
 - Novas funcionalidades entram primeiro em `core.py` (lógica pura, testável) e depois são expostas via `cli.py`
 - Docstrings públicas em estilo Google (`Args:`/`Returns:`/`Raises:`/`Attributes:`), com todo parâmetro anotado documentado — são renderizadas por `mkdocstrings` e qualquer descompasso quebra `mkdocs build --strict`
@@ -58,7 +60,8 @@
 ## 5. O que evitar
 - Não usar `eval`/`exec` para parsear valores do `.env`
 - Não adicionar dependências pesadas — o projeto é intencionalmente enxuto (`click` é a única dependência de runtime)
-- `--append` só **acrescenta** chaves ausentes: não remove variáveis antigas, não reordena nem reformata o `.env.example`, não edita o `.env`. Comandos `check`/`sync`, watch mode e integração com Git não fazem parte do escopo
+- `--append` só **acrescenta** chaves ausentes: não remove variáveis antigas, não reordena nem reformata o `.env.example`, não edita o `.env`
+- `check` só **diagnostica**: não corrige, não chama `generate`/`--append`, não escreve nada. Comando `sync`, watch mode e integração automática com Git não fazem parte do escopo
 - Não sobrescrever `.env.example` sem `--force`
 
 ## 6. Versionamento, changelog e releases

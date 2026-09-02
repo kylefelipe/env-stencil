@@ -14,6 +14,11 @@ e este projeto segue o [Semantic Versioning](https://semver.org/lang/pt-BR/).
   conteúdo existente (comentários, ordem, placeholders, seções). Compara por
   chave, nunca duplica e nunca copia valores (salvo `# envstencil:keep`). Se o
   destino não existir, gera o arquivo completo; se nada faltar, não reescreve.
+- Novo comando `envstencil check` para verificar se `.env` e `.env.example`
+  declaram o mesmo conjunto de variáveis. É somente leitura, compara só nomes
+  de chave (nunca valores) e sai com código diferente de zero quando há
+  divergências (útil em CI). A opção `--diff` (alias `--dif`) lista os nomes
+  ausentes em cada arquivo.
 
 ### Changed
 

@@ -63,6 +63,12 @@ envstencil generate --force
 
 # Adiciona apenas variáveis ausentes ao .env.example existente
 envstencil generate --append
+
+# Verifica se .env e .env.example têm as mesmas variáveis
+envstencil check
+
+# Mostra quais variáveis estão divergentes
+envstencil check --diff
 ```
 
 ## Exemplo

@@ -198,6 +198,79 @@ $ {{ commands.run }} generate --append
 Se o `.env.example` **ainda não existir**, `--append` gera o arquivo completo,
 como um `generate` normal. `--append` e `--force` não podem ser usados juntos.
 
+## Verificando sincronização
+
+`{{ commands.run }} check` compara **os nomes das variáveis** de um `.env` e do
+seu `.env.example` e diz se estão em dia. É **somente leitura**: nunca cria,
+altera nem corrige nenhum arquivo — e nunca lê nem imprime valores.
+
+O caso típico é trabalho em equipe:
+
+```text
+git pull
+↓
+o .env.example recebeu chaves novas
+↓
+o .env local continua sem elas
+↓
+envstencil check  →  avisa antes de você subir a aplicação
+```
+
+Sincronizado:
+
+```console
+$ {{ commands.run }} check
+✓ .env e .env.example estão sincronizados.
+```
+
+Com divergências, a saída resumida diz quantas e sugere `--diff`:
+
+```console
+$ {{ commands.run }} check
+⚠ Foram encontradas diferenças entre .env e .env.example.
+
+2 variáveis ausentes no .env.
+1 variável ausente no .env.example.
+
+Use --diff para ver os detalhes.
+```
+
+`--diff` (alias: `--dif`) lista os nomes — `+` para o que o `.env.example`
+espera e falta no `.env`, `-` para o que existe no `.env` e não está
+documentado:
+
+```console
+$ {{ commands.run }} check --diff
+⚠ Foram encontradas diferenças entre .env e .env.example.
+
+Ausentes no .env:
+  + SMTP_HOST
+  + SMTP_PASSWORD
+
+Ausentes no .env.example:
+  - LOCAL_DEBUG
+```
+
+Quando o `.env` tem variáveis que faltam no `.env.example`, o próximo passo
+costuma ser `{{ commands.run }} generate --append` — mas `check` nunca faz
+isso sozinho.
+
+Arquivos e comparação, como no `generate`:
+
+```bash
+{{ commands.run }} check .env.production --example .env.production.example
+```
+
+Sem `-e`/`--example`, o stencil é `SOURCE` + `.example` no mesmo diretório.
+
+**Exit codes** (úteis em CI / pre-commit):
+
+| Código | Situação |
+| ------ | -------- |
+| `0` | `.env` e `.env.example` têm o mesmo conjunto de variáveis |
+| `1` | há divergências |
+| `2` | erro de leitura/parsing (arquivo ausente, linha não reconhecida, aspa não fechada) |
+
 ## Limpando linhas em branco
 
 `-b` / `--collapse-blank-lines` reduz sequências de duas ou mais linhas em

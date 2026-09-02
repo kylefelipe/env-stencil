@@ -336,6 +336,20 @@ def get_keys(lines: list[EnvLine]) -> set[str]:
     return {line.key for line in lines if line.kind == "pair" and line.key}
 
 
+def _ordered_keys(lines: list[EnvLine]) -> list[str]:
+    """Variable names among `kind == "pair"` entries, in file order.
+
+    The first occurrence wins; later duplicates of the same key are dropped.
+    """
+    seen: set[str] = set()
+    keys: list[str] = []
+    for line in lines:
+        if line.kind == "pair" and line.key and line.key not in seen:
+            seen.add(line.key)
+            keys.append(line.key)
+    return keys
+
+
 def render_stencil(
     lines: list[EnvLine],
     placeholder: str = DEFAULT_PLACEHOLDER,
@@ -538,4 +552,67 @@ def append_missing_variables(
     _atomic_write(destination, _append_block(original, block))
     return AppendResult(
         destination, [line.key for line in missing], created=False
+    )
+
+
+@dataclass
+class EnvComparison:
+    """Result of comparing the variable names of two `.env`-style files.
+
+    Attributes:
+        missing_in_source: Keys defined in the example file but not in the
+            source file — usually the local file is out of date. In example
+            order.
+        missing_in_example: Keys defined in the source file but not in the
+            example file — new, local or stale variables. In source order.
+    """
+
+    missing_in_source: list[str]
+    missing_in_example: list[str]
+
+    @property
+    def is_synced(self) -> bool:
+        """`True` when both files declare exactly the same variables."""
+        return not self.missing_in_source and not self.missing_in_example
+
+
+def compare_env_files(source: Path, example: Path) -> EnvComparison:
+    """Compare the variable *names* declared in `source` and `example`.
+
+    Only `kind == "pair"` keys matter — values, comments and the
+    `# envstencil:keep` directive are ignored. Both files are parsed with
+    `parse_env_file`, so a line that cannot be parsed safely aborts the whole
+    comparison (fail-safe). This function is strictly read-only.
+
+    Args:
+        source: Path to the real `.env`-style file.
+        example: Path to the `.env.example`-style stencil.
+
+    Returns:
+        An `EnvComparison`; each list keeps the order of the file its keys
+        come from.
+
+    Raises:
+        FileNotFoundError: If `source` or `example` does not exist.
+        EnvParseError: If either file has a line that cannot be parsed
+            safely.
+    """
+    if not source.exists():
+        raise FileNotFoundError(f"arquivo {source} não encontrado.")
+    if not example.exists():
+        raise FileNotFoundError(f"arquivo {example} não encontrado.")
+
+    source_lines = parse_env_file(source)
+    _assert_no_unknown(source_lines)
+    example_lines = parse_env_file(example)
+    _assert_no_unknown(example_lines)
+
+    source_keys = _ordered_keys(source_lines)
+    example_keys = _ordered_keys(example_lines)
+    in_source = set(source_keys)
+    in_example = set(example_keys)
+
+    return EnvComparison(
+        missing_in_source=[k for k in example_keys if k not in in_source],
+        missing_in_example=[k for k in source_keys if k not in in_example],
     )

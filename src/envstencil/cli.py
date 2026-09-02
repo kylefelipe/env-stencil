@@ -9,10 +9,18 @@ import click
 from .core import (
     DEFAULT_PLACEHOLDER,
     AppendResult,
+    EnvComparison,
     EnvParseError,
     append_missing_variables,
+    compare_env_files,
     generate_example,
 )
+
+
+class _InputError(click.ClickException):
+    """A read/parsing/configuration error — exits with code 2."""
+
+    exit_code = 2
 
 
 @click.group()
@@ -132,6 +140,96 @@ def generate(
         raise click.ClickException(str(exc)) from exc
     except FileNotFoundError as exc:
         raise click.ClickException(str(exc)) from exc
+
+
+def _plural_ausente(n: int) -> str:
+    return "variável ausente" if n == 1 else "variáveis ausentes"
+
+
+def _report_check(
+    result: EnvComparison,
+    source: Path,
+    example: Path,
+    show_diff: bool,
+) -> None:
+    """Print the differences (names only, never values)."""
+    click.echo(f"⚠ Foram encontradas diferenças entre {source} e {example}.")
+    click.echo()
+
+    if show_diff:
+        if result.missing_in_source:
+            click.echo(f"Ausentes no {source}:")
+            for key in result.missing_in_source:
+                click.echo(f"  + {key}")
+        if result.missing_in_example:
+            if result.missing_in_source:
+                click.echo()
+            click.echo(f"Ausentes no {example}:")
+            for key in result.missing_in_example:
+                click.echo(f"  - {key}")
+        return
+
+    n_src = len(result.missing_in_source)
+    n_ex = len(result.missing_in_example)
+    if n_src:
+        click.echo(f"{n_src} {_plural_ausente(n_src)} no {source}.")
+    if n_ex:
+        click.echo(f"{n_ex} {_plural_ausente(n_ex)} no {example}.")
+    click.echo()
+    click.echo("Use --diff para ver os detalhes.")
+
+
+@main.command()
+@click.argument(
+    "source",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=".env",
+    required=False,
+)
+@click.option(
+    "-e",
+    "--example",
+    "example",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
+    help="Stencil a comparar (padrão: SOURCE + '.example').",
+)
+@click.option(
+    "--diff",
+    "--dif",
+    "show_diff",
+    is_flag=True,
+    default=False,
+    help="Lista as variáveis divergentes em cada arquivo.",
+)
+@click.pass_context
+def check(
+    ctx: click.Context,
+    source: Path,
+    example: Path | None,
+    show_diff: bool,
+) -> None:
+    """Compara as variáveis de SOURCE e do stencil (só nomes de chave).
+
+    Não modifica nenhum arquivo. Sai com 0 se estiverem sincronizados, 1 se
+    houver divergências e 2 em erro de leitura/parsing.
+    """
+    if example is None:
+        example = source.parent / f"{source.name}.example"
+
+    try:
+        result = compare_env_files(source, example)
+    except EnvParseError as exc:
+        raise _InputError(str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise _InputError(str(exc)) from exc
+
+    if result.is_synced:
+        click.echo(f"✓ {source} e {example} estão sincronizados.")
+        return
+
+    _report_check(result, source, example, show_diff)
+    ctx.exit(1)
 
 
 if __name__ == "__main__":

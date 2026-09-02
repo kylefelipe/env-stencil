@@ -5,9 +5,11 @@ import pytest
 from envstencil.core import (
     DEFAULT_PLACEHOLDER,
     AppendResult,
+    EnvComparison,
     UnsafeEnvLineError,
     UnterminatedQuotedValueError,
     append_missing_variables,
+    compare_env_files,
     generate_example,
     get_keys,
     parse_env_file,
@@ -787,3 +789,167 @@ def test_append_ignores_comments_and_blanks_in_source(tmp_path: Path) -> None:
     assert dest.read_text(encoding="utf-8") == (
         "OLD=your_value_here\n\nNEW=your_value_here\n"
     )
+
+
+# --- compare_env_files -------------------------------------------------
+
+
+def test_compare_synced_ignores_values(tmp_path: Path) -> None:
+    src = _write(tmp_path / ".env", "A=secret\nB=secret\n")
+    ex = _write(
+        tmp_path / ".env.example", "A=your_value_here\nB=your_value_here\n"
+    )
+
+    result = compare_env_files(src, ex)
+
+    assert isinstance(result, EnvComparison)
+    assert result.is_synced is True
+    assert result.missing_in_source == []
+    assert result.missing_in_example == []
+
+
+def test_compare_missing_in_source(tmp_path: Path) -> None:
+    src = _write(tmp_path / ".env", "A=1\n")
+    ex = _write(tmp_path / ".env.example", "A=x\nB=x\n")
+
+    result = compare_env_files(src, ex)
+
+    assert result.missing_in_source == ["B"]
+    assert result.missing_in_example == []
+    assert result.is_synced is False
+
+
+def test_compare_missing_in_example(tmp_path: Path) -> None:
+    src = _write(tmp_path / ".env", "A=1\nB=2\n")
+    ex = _write(tmp_path / ".env.example", "A=x\n")
+
+    result = compare_env_files(src, ex)
+
+    assert result.missing_in_source == []
+    assert result.missing_in_example == ["B"]
+
+
+def test_compare_reports_both_directions(tmp_path: Path) -> None:
+    src = _write(tmp_path / ".env", "A=1\nLOCAL_DEBUG=1\n")
+    ex = _write(tmp_path / ".env.example", "A=x\nSMTP_HOST=x\nSMTP_PORT=x\n")
+
+    result = compare_env_files(src, ex)
+
+    assert result.missing_in_source == ["SMTP_HOST", "SMTP_PORT"]
+    assert result.missing_in_example == ["LOCAL_DEBUG"]
+
+
+def test_compare_preserves_file_order(tmp_path: Path) -> None:
+    src = _write(tmp_path / ".env", "A=1\n")
+    ex = _write(
+        tmp_path / ".env.example",
+        "A=x\nSMTP_HOST=x\nSMTP_PORT=x\nSMTP_PASSWORD=x\n",
+    )
+
+    result = compare_env_files(src, ex)
+
+    assert result.missing_in_source == [
+        "SMTP_HOST",
+        "SMTP_PORT",
+        "SMTP_PASSWORD",
+    ]
+
+
+def test_compare_ignores_totally_different_values(tmp_path: Path) -> None:
+    src = _write(tmp_path / ".env", "PORT=8000\n")
+    ex = _write(tmp_path / ".env.example", "PORT=your_value_here\n")
+
+    assert compare_env_files(src, ex).is_synced is True
+
+
+def test_compare_multiline_key_counts_once(tmp_path: Path) -> None:
+    src = _write(
+        tmp_path / ".env",
+        'PRIVATE_KEY="linha 1\nlinha 2\nlinha 3"\nA=1\n',
+    )
+    ex = _write(tmp_path / ".env.example", "A=x\n")
+
+    result = compare_env_files(src, ex)
+
+    assert result.missing_in_example == ["PRIVATE_KEY"]
+    assert "linha 2" not in " ".join(
+        result.missing_in_source + result.missing_in_example
+    )
+
+
+def test_compare_keep_directive_does_not_affect_comparison(
+    tmp_path: Path,
+) -> None:
+    src = _write(tmp_path / ".env", "PORT=8000 # envstencil:keep\n")
+    ex = _write(tmp_path / ".env.example", "PORT=8000\n")
+
+    assert compare_env_files(src, ex).is_synced is True
+
+
+def test_compare_dedups_repeated_key(tmp_path: Path) -> None:
+    src = _write(tmp_path / ".env", "A=1\nB=2\nA=3\n")
+    ex = _write(tmp_path / ".env.example", "B=x\n")
+
+    result = compare_env_files(src, ex)
+
+    assert result.missing_in_example == ["A"]
+
+
+def test_compare_never_exposes_values(tmp_path: Path) -> None:
+    secret = "super-secret-value-123"
+    src = _write(tmp_path / ".env", f"A=1\nSMTP_PASSWORD={secret}\n")
+    ex = _write(tmp_path / ".env.example", "A=x\n")
+
+    result = compare_env_files(src, ex)
+
+    assert result.missing_in_example == ["SMTP_PASSWORD"]
+    assert secret not in repr(result)
+
+
+def test_compare_aborts_on_unknown_in_source(tmp_path: Path) -> None:
+    src = _write(tmp_path / ".env", "A=1\nlinha invalida sem igual\n")
+    ex = _write(tmp_path / ".env.example", "A=x\n")
+
+    with pytest.raises(UnsafeEnvLineError):
+        compare_env_files(src, ex)
+
+
+def test_compare_aborts_on_unknown_in_example(tmp_path: Path) -> None:
+    src = _write(tmp_path / ".env", "A=1\n")
+    ex = _write(tmp_path / ".env.example", "A=x\n??? estranho\n")
+
+    with pytest.raises(UnsafeEnvLineError):
+        compare_env_files(src, ex)
+
+
+def test_compare_aborts_on_unterminated_quote(tmp_path: Path) -> None:
+    src = _write(tmp_path / ".env", 'A=1\nBAD="abre e nao fecha\nmais\n')
+    ex = _write(tmp_path / ".env.example", "A=x\n")
+
+    with pytest.raises(UnterminatedQuotedValueError):
+        compare_env_files(src, ex)
+
+
+def test_compare_raises_when_source_missing(tmp_path: Path) -> None:
+    ex = _write(tmp_path / ".env.example", "A=x\n")
+
+    with pytest.raises(FileNotFoundError):
+        compare_env_files(tmp_path / "nao-existe.env", ex)
+
+
+def test_compare_raises_when_example_missing(tmp_path: Path) -> None:
+    src = _write(tmp_path / ".env", "A=1\n")
+
+    with pytest.raises(FileNotFoundError):
+        compare_env_files(src, tmp_path / "nao-existe.example")
+
+
+def test_compare_is_read_only(tmp_path: Path) -> None:
+    src = _write(tmp_path / ".env", "A=1\n")
+    ex = _write(tmp_path / ".env.example", "A=x\nB=x\n")
+    before = {p.name: p.read_bytes() for p in tmp_path.iterdir()}
+
+    compare_env_files(src, ex)
+
+    after = {p.name: p.read_bytes() for p in tmp_path.iterdir()}
+    assert before == after
