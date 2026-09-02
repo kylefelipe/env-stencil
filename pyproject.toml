@@ -4,7 +4,7 @@ build-backend = "poetry.core.masonry.api"
 
 [project]
 name = "envstencil"
-version = "0.2.0"
+version = "0.3.0"
 description = "CLI Python que gera um .env.example seguro a partir do seu .env — troca os valores por placeholders e preserva comentários e estrutura."
 readme = "README.md"
 requires-python = ">=3.10,<4"
