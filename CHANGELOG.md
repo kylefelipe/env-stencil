@@ -70,6 +70,6 @@ e este projeto segue o [Semantic Versioning](https://semver.org/lang/pt-BR/).
 - Documentação no Read the Docs e integração contínua com testes e cobertura.
 
 [Unreleased]: https://github.com/kylefelipe/env-stencil/compare/v0.3.0...HEAD
-[0.3.0]: https://github.com/kylefelipe/env-stencil/releases/tag/v0.2.0...v0.3.0
-[0.2.0]: https://github.com/kylefelipe/env-stencil/releases/tag/v0.1.0...v0.2.0
+[0.3.0]: https://github.com/kylefelipe/env-stencil/compare/tag/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/kylefelipe/env-stencil/compare/tag/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/kylefelipe/env-stencil/releases/tag/v0.1.0
