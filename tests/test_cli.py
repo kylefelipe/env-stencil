@@ -242,25 +242,82 @@ def test_check_dif_alias_matches_diff(tmp_path: Path, monkeypatch) -> None:
     assert with_alias.output == with_diff.output
 
 
-def test_check_custom_files(tmp_path: Path, monkeypatch) -> None:
+def test_check_example_option_still_works(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
-    Path(".env.production").write_text("A=1\nX=2\n", encoding="utf-8")
-    Path(".env.production.example").write_text("A=x\n", encoding="utf-8")
+    Path("a.env").write_text("A=1\nX=2\n", encoding="utf-8")
+    Path("b.env").write_text("A=x\n", encoding="utf-8")
 
     result = CliRunner().invoke(
-        main,
-        [
-            "check",
-            ".env.production",
-            "--example",
-            ".env.production.example",
-            "--diff",
-        ],
+        main, ["check", "a.env", "--example", "b.env", "--diff"]
     )
 
     assert result.exit_code == 1
     assert "  - X" in result.output
-    assert "SMTP" not in result.output
+
+
+def test_check_one_positional_derives_second_file(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    Path(".env.production").write_text("A=1\n", encoding="utf-8")
+    Path(".env.production.example").write_text("A=x\nQ=y\n", encoding="utf-8")
+
+    result = CliRunner().invoke(main, ["check", ".env.production"])
+
+    assert result.exit_code == 1
+    assert (
+        "diferenças entre .env.production e .env.production.example"
+        in result.output
+    )
+
+
+def test_check_two_positionals_compared_exactly(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    Path("a.env").write_text("A=1\nB=2\n", encoding="utf-8")
+    Path("b.env").write_text("A=x\nB=y\n", encoding="utf-8")
+    # a "a.env.example" that must be ignored when two args are given
+    Path("a.env.example").write_text("A=x\nZZZ=x\n", encoding="utf-8")
+
+    result = CliRunner().invoke(main, ["check", "a.env", "b.env"])
+
+    assert result.exit_code == 0
+    assert "a.env e b.env estão sincronizados" in result.output
+    assert "ZZZ" not in result.output
+
+
+def test_check_two_positionals_with_diff_no_values(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    Path("a.env").write_text(
+        "A=1\nSMTP_PASSWORD=super-secret-42\n", encoding="utf-8"
+    )
+    Path("b.env").write_text("A=x\nLOCAL_DEBUG=x\n", encoding="utf-8")
+
+    result = CliRunner().invoke(main, ["check", "a.env", "b.env", "--diff"])
+
+    assert result.exit_code == 1
+    assert "  + LOCAL_DEBUG" in result.output
+    assert "  - SMTP_PASSWORD" in result.output
+    assert "super-secret-42" not in result.output
+
+
+def test_check_file2_and_example_together_is_error(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    for name in ("a.env", "b.env", "c.env"):
+        Path(name).write_text("A=1\n", encoding="utf-8")
+
+    result = CliRunner().invoke(
+        main, ["check", "a.env", "b.env", "--example", "c.env"]
+    )
+
+    assert result.exit_code == 2
+    assert "FILE2" in result.output
+    assert "--example" in result.output
 
 
 def test_check_parse_error_exits_two(tmp_path: Path, monkeypatch) -> None:

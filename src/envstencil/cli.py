@@ -148,42 +148,48 @@ def _plural_ausente(n: int) -> str:
 
 def _report_check(
     result: EnvComparison,
-    source: Path,
-    example: Path,
+    first: Path,
+    second: Path,
     show_diff: bool,
 ) -> None:
     """Print the differences (names only, never values)."""
-    click.echo(f"⚠ Foram encontradas diferenças entre {source} e {example}.")
+    click.echo(f"⚠ Foram encontradas diferenças entre {first} e {second}.")
     click.echo()
 
     if show_diff:
         if result.missing_in_source:
-            click.echo(f"Ausentes no {source}:")
+            click.echo(f"Ausentes no {first}:")
             for key in result.missing_in_source:
                 click.echo(f"  + {key}")
         if result.missing_in_example:
             if result.missing_in_source:
                 click.echo()
-            click.echo(f"Ausentes no {example}:")
+            click.echo(f"Ausentes no {second}:")
             for key in result.missing_in_example:
                 click.echo(f"  - {key}")
         return
 
-    n_src = len(result.missing_in_source)
-    n_ex = len(result.missing_in_example)
-    if n_src:
-        click.echo(f"{n_src} {_plural_ausente(n_src)} no {source}.")
-    if n_ex:
-        click.echo(f"{n_ex} {_plural_ausente(n_ex)} no {example}.")
+    n_first = len(result.missing_in_source)
+    n_second = len(result.missing_in_example)
+    if n_first:
+        click.echo(f"{n_first} {_plural_ausente(n_first)} no {first}.")
+    if n_second:
+        click.echo(f"{n_second} {_plural_ausente(n_second)} no {second}.")
     click.echo()
     click.echo("Use --diff para ver os detalhes.")
 
 
 @main.command()
 @click.argument(
-    "source",
+    "file1",
     type=click.Path(dir_okay=False, path_type=Path),
     default=".env",
+    required=False,
+)
+@click.argument(
+    "file2",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
     required=False,
 )
 @click.option(
@@ -192,7 +198,7 @@ def _report_check(
     "example",
     type=click.Path(dir_okay=False, path_type=Path),
     default=None,
-    help="Stencil a comparar (padrão: SOURCE + '.example').",
+    help="Forma alternativa de informar o segundo arquivo (compatibilidade).",
 )
 @click.option(
     "--diff",
@@ -205,30 +211,47 @@ def _report_check(
 @click.pass_context
 def check(
     ctx: click.Context,
-    source: Path,
+    file1: Path,
+    file2: Path | None,
     example: Path | None,
     show_diff: bool,
 ) -> None:
-    """Compara as variáveis de SOURCE e do stencil (só nomes de chave).
+    """Compara as variáveis declaradas em dois arquivos dotenv.
 
-    Não modifica nenhum arquivo. Sai com 0 se estiverem sincronizados, 1 se
-    houver divergências e 2 em erro de leitura/parsing.
+    Compara apenas os nomes das chaves — valores nunca são lidos nem
+    exibidos. Não modifica nenhum arquivo.
+
+    \b
+    Sem argumentos:      .env e .env.example
+    Com um argumento:    FILE1 e FILE1 + ".example"
+    Com dois argumentos: exatamente FILE1 e FILE2
+
+    `--example` (`-e`) é uma forma alternativa/compatível de informar o
+    segundo arquivo; não pode ser combinada com FILE2.
+
+    Exit codes: 0 sincronizados, 1 divergências, 2 erro de leitura/parsing.
     """
-    if example is None:
-        example = source.parent / f"{source.name}.example"
+    if file2 is not None and example is not None:
+        raise click.UsageError(
+            "não é possível informar FILE2 e --example ao mesmo tempo."
+        )
+
+    second = file2 if file2 is not None else example
+    if second is None:
+        second = file1.parent / f"{file1.name}.example"
 
     try:
-        result = compare_env_files(source, example)
+        result = compare_env_files(file1, second)
     except EnvParseError as exc:
         raise _InputError(str(exc)) from exc
     except FileNotFoundError as exc:
         raise _InputError(str(exc)) from exc
 
     if result.is_synced:
-        click.echo(f"✓ {source} e {example} estão sincronizados.")
+        click.echo(f"✓ {file1} e {second} estão sincronizados.")
         return
 
-    _report_check(result, source, example, show_diff)
+    _report_check(result, file1, second, show_diff)
     ctx.exit(1)
 
 

@@ -200,11 +200,29 @@ como um `generate` normal. `--append` e `--force` não podem ser usados juntos.
 
 ## Verificando sincronização
 
-`{{ commands.run }} check` compara **os nomes das variáveis** de um `.env` e do
-seu `.env.example` e diz se estão em dia. É **somente leitura**: nunca cria,
+`{{ commands.run }} check` compara **os nomes das variáveis** declaradas em
+dois arquivos dotenv e diz se estão em dia. É **somente leitura**: nunca cria,
 altera nem corrige nenhum arquivo — e nunca lê nem imprime valores.
 
-O caso típico é trabalho em equipe:
+### Quais arquivos são comparados
+
+```bash
+{{ commands.run }} check                    # .env  e  .env.example
+{{ commands.run }} check FILE1              # FILE1  e  FILE1 + ".example"
+{{ commands.run }} check FILE1 FILE2        # exatamente FILE1 e FILE2
+{{ commands.run }} check FILE1 FILE2 --diff # o mesmo, listando as divergências
+```
+
+- **Sem argumento:** `.env` e `.env.example` no diretório atual.
+- **Um argumento:** o segundo arquivo é o primeiro + `.example` (mesma
+  convenção do `generate`).
+- **Dois argumentos:** compara exatamente esses dois — nenhuma convenção é
+  aplicada.
+
+Compatibilidade: `{{ commands.run }} check FILE1 --example FILE2` (`-e`)
+continua funcionando. Não combine `--example` com o segundo posicional.
+
+### Caso típico: equipe
 
 ```text
 git pull
@@ -251,23 +269,15 @@ Ausentes no .env.example:
   - LOCAL_DEBUG
 ```
 
-Quando o `.env` tem variáveis que faltam no `.env.example`, o próximo passo
-costuma ser `{{ commands.run }} generate --append` — mas `check` nunca faz
-isso sozinho.
-
-Arquivos e comparação, como no `generate`:
-
-```bash
-{{ commands.run }} check .env.production --example .env.production.example
-```
-
-Sem `-e`/`--example`, o stencil é `SOURCE` + `.example` no mesmo diretório.
+Quando o primeiro arquivo tem variáveis que faltam no segundo, o próximo
+passo costuma ser `{{ commands.run }} generate --append` — mas `check` nunca
+faz isso sozinho.
 
 **Exit codes** (úteis em CI / pre-commit):
 
 | Código | Situação |
 | ------ | -------- |
-| `0` | `.env` e `.env.example` têm o mesmo conjunto de variáveis |
+| `0` | os dois arquivos declaram o mesmo conjunto de variáveis |
 | `1` | há divergências |
 | `2` | erro de leitura/parsing (arquivo ausente, linha não reconhecida, aspa não fechada) |
 
