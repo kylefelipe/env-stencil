@@ -7,7 +7,7 @@ name = "envstencil"
 version = "0.3.0"
 description = "CLI Python que gera um .env.example seguro a partir do seu .env — troca os valores por placeholders e preserva comentários e estrutura."
 readme = "README.md"
-requires-python = ">=3.10,<4"
+requires-python = ">=3.11,<4"
 license = { text = "MIT" }
 authors = [
     { name = "Kyle Felipe", email = "kylefelipe@gmail.com" }
