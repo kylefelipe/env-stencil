@@ -270,14 +270,14 @@ def get_user_config_path() -> Path:
 
 
 def _load_config_file(path: Path) -> EnvStencilConfig:
-    """`parse_config(load_toml(path))` if `path` is a file, else an empty
-    config.
+    """`parse_config(load_toml(path))` if `path` exists, else an empty config.
 
-    A missing file just means "no override at this layer". An existing file
-    that is unreadable, is invalid TOML, or has bad values propagates the
-    error (`ConfigError` or the filesystem exception).
+    Only *non-existence* is treated as "no override at this layer". A path
+    that exists but is not a readable file (a directory, no read permission,
+    …) is left to `load_toml` / `Path.open`, so the filesystem error
+    propagates; invalid TOML or bad values still surface as `ConfigError`.
     """
-    if not path.is_file():
+    if not path.exists():
         return EnvStencilConfig()
     return parse_config(load_toml(path))
 
@@ -296,7 +296,7 @@ def load_pyproject_config(cwd: Path | None = None) -> EnvStencilConfig:
     `tool.envstencil` that is not a table.
     """
     path = (cwd or Path.cwd()) / PYPROJECT_FILENAME
-    if not path.is_file():
+    if not path.exists():
         return EnvStencilConfig()
 
     data = load_toml(path)

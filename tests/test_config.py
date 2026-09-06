@@ -541,3 +541,34 @@ def test_load_config_keeps_defaults_when_layer_silent(
     assert cfg.global_.file1 == Path(".env")  # from defaults
     assert cfg.generate.force is False  # from defaults
     assert cfg.check.diff is True  # from .envstencil.toml
+
+
+# --- existing-but-invalid path is not "absent" -----------------
+
+
+def test_load_user_config_directory_propagates_filesystem_error(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    (tmp_path / "xdg" / "envstencil" / "config.toml").mkdir(parents=True)
+
+    with pytest.raises((IsADirectoryError, PermissionError)):
+        load_user_config()
+
+
+def test_load_project_config_directory_propagates_filesystem_error(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / ".envstencil.toml").mkdir()
+
+    with pytest.raises((IsADirectoryError, PermissionError)):
+        load_project_config(tmp_path)
+
+
+def test_load_pyproject_config_directory_propagates_filesystem_error(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "pyproject.toml").mkdir()
+
+    with pytest.raises((IsADirectoryError, PermissionError)):
+        load_pyproject_config(tmp_path)
