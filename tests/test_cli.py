@@ -672,14 +672,14 @@ def test_generate_explicit_source_beats_config(
     )
 
 
-def test_generate_config_force_true_overwrites(
+def test_generate_config_behaviour_force_overwrites(
     tmp_path: Path, monkeypatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
     Path(".env").write_text("A=secret\n", encoding="utf-8")
     Path(".env.example").write_text("velho\n", encoding="utf-8")
     Path(".envstencil.toml").write_text(
-        "[generate]\nforce = true\n", encoding="utf-8"
+        '[generate]\nbehaviour = "force"\n', encoding="utf-8"
     )
 
     result = CliRunner().invoke(main, ["generate"])
@@ -691,14 +691,14 @@ def test_generate_config_force_true_overwrites(
     )
 
 
-def test_generate_config_force_false_aborts_on_existing(
+def test_generate_config_behaviour_fail_aborts_on_existing(
     tmp_path: Path, monkeypatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
     Path(".env").write_text("A=secret\n", encoding="utf-8")
     Path(".env.example").write_text("velho\n", encoding="utf-8")
     Path(".envstencil.toml").write_text(
-        "[generate]\nforce = false\n", encoding="utf-8"
+        '[generate]\nbehaviour = "fail"\n', encoding="utf-8"
     )
 
     result = CliRunner().invoke(main, ["generate"])
@@ -707,14 +707,33 @@ def test_generate_config_force_false_aborts_on_existing(
     assert Path(".env.example").read_text(encoding="utf-8") == "velho\n"
 
 
-def test_generate_cli_force_beats_config_false(
+def test_generate_config_behaviour_append_runs_append(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    Path(".env").write_text("A=1\nNEW=2\n", encoding="utf-8")
+    Path(".env.example").write_text("A=your_value_here\n", encoding="utf-8")
+    Path(".envstencil.toml").write_text(
+        '[generate]\nbehaviour = "append"\n', encoding="utf-8"
+    )
+
+    result = CliRunner().invoke(main, ["generate"])
+
+    assert result.exit_code == 0
+    assert "+ NEW" in result.output
+    assert Path(".env.example").read_text(encoding="utf-8") == (
+        "A=your_value_here\n\nNEW=your_value_here\n"
+    )
+
+
+def test_generate_cli_force_beats_config_append(
     tmp_path: Path, monkeypatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
     Path(".env").write_text("A=secret\n", encoding="utf-8")
     Path(".env.example").write_text("velho\n", encoding="utf-8")
     Path(".envstencil.toml").write_text(
-        "[generate]\nforce = false\n", encoding="utf-8"
+        '[generate]\nbehaviour = "append"\n', encoding="utf-8"
     )
 
     result = CliRunner().invoke(main, ["generate", "--force"])
@@ -726,20 +745,35 @@ def test_generate_cli_force_beats_config_false(
     )
 
 
-def test_generate_cli_no_force_beats_config_true(
+def test_generate_cli_append_beats_config_force(
     tmp_path: Path, monkeypatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    Path(".env").write_text("A=secret\n", encoding="utf-8")
-    Path(".env.example").write_text("velho\n", encoding="utf-8")
+    Path(".env").write_text("A=1\nNEW=2\n", encoding="utf-8")
+    Path(".env.example").write_text("A=your_value_here\n", encoding="utf-8")
     Path(".envstencil.toml").write_text(
-        "[generate]\nforce = true\n", encoding="utf-8"
+        '[generate]\nbehaviour = "force"\n', encoding="utf-8"
     )
+
+    result = CliRunner().invoke(main, ["generate", "--append"])
+
+    assert result.exit_code == 0
+    assert Path(".env.example").read_text(encoding="utf-8") == (
+        "A=your_value_here\n\nNEW=your_value_here\n"
+    )
+
+
+def test_generate_no_force_option_is_gone(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    Path(".env").write_text("A=secret\n", encoding="utf-8")
 
     result = CliRunner().invoke(main, ["generate", "--no-force"])
 
-    assert result.exit_code != 0
-    assert Path(".env.example").read_text(encoding="utf-8") == "velho\n"
+    assert result.exit_code == 2
+    assert "no such option" in result.output.lower()
+
+    help_result = CliRunner().invoke(main, ["generate", "--help"])
+    assert "--no-force" not in help_result.output
 
 
 def test_generate_explicit_config_changes_real_behaviour(
@@ -748,7 +782,9 @@ def test_generate_explicit_config_changes_real_behaviour(
     monkeypatch.chdir(tmp_path)
     Path(".env").write_text("A=secret\n", encoding="utf-8")
     Path(".env.example").write_text("velho\n", encoding="utf-8")
-    Path("ci.toml").write_text("[generate]\nforce = true\n", encoding="utf-8")
+    Path("ci.toml").write_text(
+        '[generate]\nbehaviour = "force"\n', encoding="utf-8"
+    )
 
     result = CliRunner().invoke(main, ["--config", "ci.toml", "generate"])
 
@@ -766,7 +802,7 @@ def test_generate_pyproject_config_changes_real_behaviour(
     Path(".env").write_text("A=secret\n", encoding="utf-8")
     Path(".env.example").write_text("velho\n", encoding="utf-8")
     Path("pyproject.toml").write_text(
-        "[tool.envstencil.generate]\nforce = true\n", encoding="utf-8"
+        '[tool.envstencil.generate]\nbehaviour = "force"\n', encoding="utf-8"
     )
 
     result = CliRunner().invoke(main, ["generate"])
@@ -785,7 +821,7 @@ def test_generate_user_config_changes_real_behaviour(
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
     cfg = tmp_path / "xdg" / "envstencil" / "config.toml"
     cfg.parent.mkdir(parents=True)
-    cfg.write_text("[generate]\nforce = true\n", encoding="utf-8")
+    cfg.write_text('[generate]\nbehaviour = "force"\n', encoding="utf-8")
     Path(".env").write_text("A=secret\n", encoding="utf-8")
     Path(".env.example").write_text("velho\n", encoding="utf-8")
 
@@ -796,6 +832,21 @@ def test_generate_user_config_changes_real_behaviour(
         Path(".env.example").read_text(encoding="utf-8")
         == "A=your_value_here\n"
     )
+
+
+def test_generate_legacy_force_key_in_config_is_error(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    Path(".env").write_text("A=secret\n", encoding="utf-8")
+    Path(".envstencil.toml").write_text(
+        "[generate]\nforce = true\n", encoding="utf-8"
+    )
+
+    result = CliRunner().invoke(main, ["generate"])
+
+    assert result.exit_code == 2
+    assert "generate.force" in result.output
 
 
 def test_generate_no_config_keeps_default_behaviour(
@@ -849,24 +900,28 @@ def test_full_precedence_cli_beats_every_config_layer_generate(
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
     user = tmp_path / "xdg" / "envstencil" / "config.toml"
     user.parent.mkdir(parents=True)
-    user.write_text("[generate]\nforce = true\n", encoding="utf-8")
+    user.write_text('[generate]\nbehaviour = "fail"\n', encoding="utf-8")
     Path("pyproject.toml").write_text(
-        "[tool.envstencil.generate]\nforce = false\n", encoding="utf-8"
+        '[tool.envstencil.generate]\nbehaviour = "append"\n', encoding="utf-8"
     )
     Path(".envstencil.toml").write_text(
-        "[generate]\nforce = true\n", encoding="utf-8"
+        '[generate]\nbehaviour = "force"\n', encoding="utf-8"
     )
-    Path("ci.toml").write_text("[generate]\nforce = true\n", encoding="utf-8")
-    Path(".env").write_text("A=secret\n", encoding="utf-8")
-    Path(".env.example").write_text("velho\n", encoding="utf-8")
+    Path("ci.toml").write_text(
+        '[generate]\nbehaviour = "force"\n', encoding="utf-8"
+    )
+    Path(".env").write_text("A=1\nNEW=2\n", encoding="utf-8")
+    Path(".env.example").write_text("A=your_value_here\n", encoding="utf-8")
 
-    # every layer up to ci.toml says force=true, but --no-force (CLI) wins
+    # every layer up to ci.toml resolves to force, but --append (CLI) wins
     result = CliRunner().invoke(
-        main, ["--config", "ci.toml", "generate", "--no-force"]
+        main, ["--config", "ci.toml", "generate", "--append"]
     )
 
-    assert result.exit_code != 0
-    assert Path(".env.example").read_text(encoding="utf-8") == "velho\n"
+    assert result.exit_code == 0
+    assert Path(".env.example").read_text(encoding="utf-8") == (
+        "A=your_value_here\n\nNEW=your_value_here\n"
+    )
 
 
 # --- config discovery from a subdirectory (milestone 5) ------
@@ -901,7 +956,7 @@ def test_generate_finds_ancestor_pyproject_from_subdir(
     workdir = project / "src" / "package"
     workdir.mkdir(parents=True)
     (project / "pyproject.toml").write_text(
-        "[tool.envstencil.generate]\nforce = true\n", encoding="utf-8"
+        '[tool.envstencil.generate]\nbehaviour = "force"\n', encoding="utf-8"
     )
     (workdir / ".env").write_text("A=secret\n", encoding="utf-8")
     (workdir / ".env.example").write_text("velho\n", encoding="utf-8")

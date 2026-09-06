@@ -7,6 +7,7 @@ from envstencil.config import (
     CheckConfig,
     ConfigError,
     EnvStencilConfig,
+    GenerateBehaviour,
     GenerateConfig,
     GlobalConfig,
     ResolvedCheckConfig,
@@ -33,7 +34,7 @@ def test_default_config_values() -> None:
 
     assert cfg.global_.file1 == Path(".env")
     assert cfg.global_.file2 == Path(".env.example")
-    assert cfg.generate.force is False
+    assert cfg.generate.behaviour is GenerateBehaviour.FAIL
     assert cfg.check.diff is False
     # not part of the documented defaults
     assert cfg.generate.file1 is None
@@ -79,12 +80,22 @@ def test_parse_global_section() -> None:
 
 def test_parse_generate_section() -> None:
     cfg = parse_config(
-        {"generate": {"file1": "a", "file2": "b", "force": True}}
+        {"generate": {"file1": "a", "file2": "b", "behaviour": "force"}}
     )
 
     assert cfg.generate == GenerateConfig(
-        file1=Path("a"), file2=Path("b"), force=True
+        file1=Path("a"), file2=Path("b"), behaviour=GenerateBehaviour.FORCE
     )
+
+
+def test_parse_generate_behaviour_values() -> None:
+    for raw, expected in (
+        ("fail", GenerateBehaviour.FAIL),
+        ("force", GenerateBehaviour.FORCE),
+        ("append", GenerateBehaviour.APPEND),
+    ):
+        cfg = parse_config({"generate": {"behaviour": raw}})
+        assert cfg.generate.behaviour is expected
 
 
 def test_parse_check_section() -> None:
@@ -113,9 +124,9 @@ def test_parse_ignores_unknown_top_level_section() -> None:
 
 
 def test_parse_partial_keys_leave_others_none() -> None:
-    cfg = parse_config({"generate": {"force": True}})
+    cfg = parse_config({"generate": {"behaviour": "force"}})
 
-    assert cfg.generate.force is True
+    assert cfg.generate.behaviour is GenerateBehaviour.FORCE
     assert cfg.generate.file1 is None
     assert cfg.generate.file2 is None
 
@@ -133,7 +144,32 @@ def test_parse_rejects_string_boolean() -> None:
 
 def test_parse_rejects_int_boolean() -> None:
     with pytest.raises(ConfigError) as excinfo:
-        parse_config({"generate": {"force": 1}})
+        parse_config({"generate": {"behaviour": 1}})
+
+    assert "generate.behaviour" in str(excinfo.value)
+    assert "string" in str(excinfo.value)
+
+
+def test_parse_rejects_bool_behaviour() -> None:
+    with pytest.raises(ConfigError) as excinfo:
+        parse_config({"generate": {"behaviour": True}})
+
+    assert "generate.behaviour" in str(excinfo.value)
+    assert "string" in str(excinfo.value)
+
+
+def test_parse_rejects_unknown_behaviour_value() -> None:
+    with pytest.raises(ConfigError) as excinfo:
+        parse_config({"generate": {"behaviour": "banana"}})
+
+    msg = str(excinfo.value)
+    assert "generate.behaviour" in msg
+    assert "fail" in msg and "force" in msg and "append" in msg
+
+
+def test_parse_rejects_legacy_force_key() -> None:
+    with pytest.raises(ConfigError) as excinfo:
+        parse_config({"generate": {"force": True}})
 
     assert "generate.force" in str(excinfo.value)
 
@@ -244,6 +280,30 @@ def test_merge_false_override_replaces_true() -> None:
     assert merge_config(base, override).check.diff is False
 
 
+def test_merge_behaviour_override_replaces_lower_layer() -> None:
+    for base_val, over_val in (
+        ("fail", "force"),
+        ("force", "append"),
+        ("append", "fail"),
+    ):
+        base = parse_config({"generate": {"behaviour": base_val}})
+        override = parse_config({"generate": {"behaviour": over_val}})
+
+        merged = merge_config(base, override)
+
+        assert merged.generate.behaviour is GenerateBehaviour(over_val)
+
+
+def test_merge_none_behaviour_keeps_base() -> None:
+    base = parse_config({"generate": {"behaviour": "append"}})
+    override = EnvStencilConfig()  # behaviour is None
+
+    assert (
+        merge_config(base, override).generate.behaviour
+        is GenerateBehaviour.APPEND
+    )
+
+
 def test_merge_does_not_mutate_inputs() -> None:
     base = parse_config({"global": {"file1": ".env"}, "check": {"diff": True}})
     override = parse_config({"global": {"file1": ".env.local"}})
@@ -262,7 +322,7 @@ def test_merge_with_defaults_as_base() -> None:
     )
 
     assert result.global_.file1 == Path(".env")
-    assert result.generate.force is False
+    assert result.generate.behaviour is GenerateBehaviour.FAIL
     assert result.check.diff is True
 
 
@@ -389,10 +449,13 @@ def test_load_pyproject_reads_global(tmp_path: Path) -> None:
 def test_load_pyproject_reads_generate(tmp_path: Path) -> None:
     _write(
         tmp_path / "pyproject.toml",
-        "[tool.envstencil.generate]\nforce = true\n",
+        '[tool.envstencil.generate]\nbehaviour = "force"\n',
     )
 
-    assert load_pyproject_config(tmp_path).generate.force is True
+    assert (
+        load_pyproject_config(tmp_path).generate.behaviour
+        is GenerateBehaviour.FORCE
+    )
 
 
 def test_load_pyproject_reads_check(tmp_path: Path) -> None:
@@ -544,7 +607,7 @@ def test_load_config_keeps_defaults_when_layer_silent(
     cfg = load_config(tmp_path)
 
     assert cfg.global_.file1 == Path(".env")  # from defaults
-    assert cfg.generate.force is False  # from defaults
+    assert cfg.generate.behaviour is GenerateBehaviour.FAIL  # from defaults
     assert cfg.check.diff is True  # from .envstencil.toml
 
 
@@ -705,14 +768,16 @@ def test_explicit_config_is_a_layer_not_a_replacement(
     )
     _write(
         tmp_path / "pyproject.toml",
-        "[tool.envstencil.generate]\nforce = true\n",
+        '[tool.envstencil.generate]\nbehaviour = "force"\n',
     )
     ci = _write_ci(tmp_path, "[check]\ndiff = true\n")
 
     cfg = load_config(tmp_path, explicit_config=ci)
 
     assert cfg.global_.file1 == Path(".env")  # inherited from user
-    assert cfg.generate.force is True  # inherited from pyproject
+    assert (
+        cfg.generate.behaviour is GenerateBehaviour.FORCE
+    )  # inherited from pyproject
     assert cfg.check.diff is True  # from ci.toml
 
 
@@ -729,7 +794,10 @@ def test_load_config_full_precedence_example_from_spec(
         tmp_path / "pyproject.toml",
         "[tool.envstencil.global]\nfile1 = '.env.local'\n",
     )
-    _write(tmp_path / ".envstencil.toml", "[generate]\nforce = true\n")
+    _write(
+        tmp_path / ".envstencil.toml",
+        '[generate]\nbehaviour = "force"\n',
+    )
     ci = _write_ci(
         tmp_path,
         "[global]\nfile1 = '.env.ci'\nfile2 = '.env.ci.example'\n\n"
@@ -740,7 +808,7 @@ def test_load_config_full_precedence_example_from_spec(
 
     assert cfg.global_.file1 == Path(".env.ci")
     assert cfg.global_.file2 == Path(".env.ci.example")
-    assert cfg.generate.force is True
+    assert cfg.generate.behaviour is GenerateBehaviour.FORCE
     assert cfg.check.diff is False
 
 
@@ -856,7 +924,9 @@ def test_resolve_generate_inherits_global_files() -> None:
     resolved = resolve_generate_config(cfg)
 
     assert resolved == ResolvedGenerateConfig(
-        file1=Path(".env"), file2=Path(".env.example"), force=False
+        file1=Path(".env"),
+        file2=Path(".env.example"),
+        behaviour=GenerateBehaviour.FAIL,
     )
 
 
@@ -864,7 +934,7 @@ def test_resolve_generate_file1_overrides_global() -> None:
     cfg = parse_config(
         {
             "global": {"file1": ".env", "file2": ".env.example"},
-            "generate": {"file1": ".env.prod", "force": False},
+            "generate": {"file1": ".env.prod", "behaviour": "fail"},
         }
     )
 
@@ -878,28 +948,24 @@ def test_resolve_generate_file2_overrides_global() -> None:
     cfg = parse_config(
         {
             "global": {"file1": ".env", "file2": ".env.example"},
-            "generate": {"file2": ".env.prod.example", "force": True},
+            "generate": {
+                "file2": ".env.prod.example",
+                "behaviour": "force",
+            },
         }
     )
 
     assert resolve_generate_config(cfg).file2 == Path(".env.prod.example")
 
 
-def test_resolve_generate_force_true_and_false_preserved() -> None:
+def test_resolve_generate_behaviour_values_preserved() -> None:
     base = {"global": {"file1": ".env", "file2": ".env.example"}}
 
-    assert (
-        resolve_generate_config(
-            parse_config({**base, "generate": {"force": True}})
-        ).force
-        is True
-    )
-    assert (
-        resolve_generate_config(
-            parse_config({**base, "generate": {"force": False}})
-        ).force
-        is False
-    )
+    for value in ("fail", "force", "append"):
+        resolved = resolve_generate_config(
+            parse_config({**base, "generate": {"behaviour": value}})
+        )
+        assert resolved.behaviour is GenerateBehaviour(value)
 
 
 def test_resolve_generate_unresolvable_raises() -> None:
@@ -909,11 +975,22 @@ def test_resolve_generate_unresolvable_raises() -> None:
     assert "generate.file1" in str(excinfo.value)
 
 
+def test_resolve_generate_unresolvable_behaviour_raises() -> None:
+    cfg = parse_config({"global": {"file1": ".env", "file2": ".env.example"}})
+
+    with pytest.raises(ConfigError) as excinfo:
+        resolve_generate_config(cfg)
+
+    assert "generate.behaviour" in str(excinfo.value)
+
+
 def test_resolve_generate_from_defaults_is_complete() -> None:
     resolved = resolve_generate_config(default_config())
 
     assert resolved == ResolvedGenerateConfig(
-        file1=Path(".env"), file2=Path(".env.example"), force=False
+        file1=Path(".env"),
+        file2=Path(".env.example"),
+        behaviour=GenerateBehaviour.FAIL,
     )
 
 

@@ -15,7 +15,8 @@ e este projeto segue o [Semantic Versioning](https://semver.org/lang/pt-BR/).
   `pyproject.toml`, `.envstencil.toml` e o arquivo passado em `--config`; os
   argumentos e flags da linha de comando sempre vencem. As seções `[global]`,
   `[generate]` e `[check]` definem `file1` / `file2` (origem e destino/segundo
-  arquivo) e, respectivamente, `force` e `diff`.
+  arquivo) e, respectivamente, `behaviour` (`"fail"` — padrão —, `"force"` ou
+  `"append"`) e `diff`.
 - `pyproject.toml` e `.envstencil.toml` são procurados a partir do diretório
   atual e depois nos diretórios pais até a raiz do sistema de arquivos, então
   o `envstencil` roda de dentro de um subdiretório do projeto e ainda encontra

@@ -9,6 +9,7 @@ import click
 from .config import (
     ConfigError,
     EnvStencilConfig,
+    GenerateBehaviour,
     load_config,
     resolve_check_config,
     resolve_generate_config,
@@ -82,19 +83,41 @@ def _report_append(result: AppendResult, source: Path) -> None:
         click.echo(f"  + {key}")
 
 
+def _resolve_generate_behaviour(
+    configured: GenerateBehaviour, force: bool, append: bool
+) -> GenerateBehaviour:
+    """Fold the CLI flags onto the configured behaviour.
+
+    `--force` and `--append` are the only CLI knobs: each explicitly selects
+    its behaviour and wins over the config. With neither flag the configured
+    value (`fail` / `force` / `append`) is used as-is. There is no CLI way
+    to force `fail` when the config asks for `force`/`append`.
+    """
+    if force and append:
+        raise click.UsageError(
+            "--append e --force não podem ser usados juntos."
+        )
+    if force:
+        return GenerateBehaviour.FORCE
+    if append:
+        return GenerateBehaviour.APPEND
+    return configured
+
+
 def _resolve_generate_inputs(
     config: EnvStencilConfig,
     source: Path | None,
     destination: Path | None,
-    force: bool | None,
-) -> tuple[Path, Path, bool]:
+    force: bool,
+    append: bool,
+) -> tuple[Path, Path, GenerateBehaviour]:
     """Layer explicit CLI values over the resolved `[generate]`/`[global]`.
 
     Rules: an explicit `source` wins over config; an explicit `-o/--output`
     wins over everything, otherwise an explicit `source` derives
     `<source>.example` (config's second file is *not* mixed in), and only a
-    fully omitted pair falls back to the configured files. `--force` /
-    `--no-force` win over `config`; `None` (neither given) uses the config.
+    fully omitted pair falls back to the configured files. The behaviour is
+    the configured one unless `--force` / `--append` override it.
     """
     resolved = resolve_generate_config(config)
     src = source if source is not None else resolved.file1
@@ -104,8 +127,8 @@ def _resolve_generate_inputs(
         out = source.parent / f"{source.name}.example"
     else:
         out = resolved.file2
-    effective_force = force if force is not None else resolved.force
-    return src, out, effective_force
+    behaviour = _resolve_generate_behaviour(resolved.behaviour, force, append)
+    return src, out, behaviour
 
 
 @main.command()
@@ -132,10 +155,11 @@ def _resolve_generate_inputs(
 )
 @click.option(
     "-f",
-    "--force/--no-force",
+    "--force",
     "force",
-    default=None,
-    help="Regenera e sobrescreve tudo (--no-force desativa; padrão: config).",
+    is_flag=True,
+    default=False,
+    help="Regenera e sobrescreve o destino existente (override da config).",
 )
 @click.option(
     "-a",
@@ -143,7 +167,7 @@ def _resolve_generate_inputs(
     "append",
     is_flag=True,
     default=False,
-    help="Preserva o .env.example e adiciona só as variáveis ausentes.",
+    help="Preserva o destino e adiciona só as variáveis ausentes (override).",
 )
 @click.option(
     "-b",
@@ -158,7 +182,7 @@ def generate(
     source: Path | None,
     destination: Path | None,
     placeholder: str,
-    force: bool | None,
+    force: bool,
     append: bool,
     collapse_blank_lines: bool,
 ) -> None:
@@ -168,25 +192,23 @@ def generate(
     (`[global]` / `[generate]`; padrão `.env` e `.env.example`).
 
     \b
-    Sem flags: cria o arquivo apenas se ele ainda não existir (aborta se
-        existir). --force / --no-force regeneram/sobrescrevem ou não; sem
-        nenhum dos dois, usa o valor configurado. --append preserva o
-        arquivo e acrescenta só as variáveis que faltam.
+    O comportamento com um destino já existente vem de `[generate].behaviour`
+    (`fail` — padrão —, `force` ou `append`):
+        fail    cria só se o destino não existir; se existir, aborta.
+        force   regenera e sobrescreve o destino.
+        append  preserva o destino e acrescenta só as variáveis que faltam.
+    --force e --append são overrides explícitos da CLI (vencem a config);
+    não há flag para forçar `fail`.
     """
-    if append and force is True:
-        raise click.UsageError(
-            "--append e --force não podem ser usados juntos."
-        )
-
     try:
-        src, out, effective_force = _resolve_generate_inputs(
-            ctx.obj["config"], source, destination, force
+        src, out, behaviour = _resolve_generate_inputs(
+            ctx.obj["config"], source, destination, force, append
         )
     except ConfigError as exc:
         raise _InputError(str(exc)) from exc
 
     try:
-        if append:
+        if behaviour is GenerateBehaviour.APPEND:
             _report_append(
                 append_missing_variables(
                     source=src,
@@ -200,7 +222,7 @@ def generate(
                 source=src,
                 destination=out,
                 placeholder=placeholder,
-                force=effective_force,
+                force=behaviour is GenerateBehaviour.FORCE,
                 collapse_blank_lines=collapse_blank_lines,
             )
             click.echo(f"✅ {result} gerado a partir de {src}")

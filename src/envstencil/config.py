@@ -24,6 +24,7 @@ from __future__ import annotations
 import os
 import tomllib
 from dataclasses import dataclass, field, fields, replace
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
@@ -35,6 +36,23 @@ PYPROJECT_FILENAME = "pyproject.toml"
 
 class ConfigError(ValueError):
     """Raised when a configuration file has an invalid value or type."""
+
+
+class GenerateBehaviour(StrEnum):
+    """How `generate` treats an already-existing destination.
+
+    Attributes:
+        FAIL: Generate when the destination is absent; abort (never
+            overwrite, never append) when it already exists. The
+            conservative default.
+        FORCE: Regenerate and overwrite the destination wholesale.
+        APPEND: Keep the destination's content and add only the keys that
+            are missing from it.
+    """
+
+    FAIL = "fail"
+    FORCE = "force"
+    APPEND = "append"
 
 
 @dataclass
@@ -51,7 +69,7 @@ class GenerateConfig:
 
     file1: Path | None = None
     file2: Path | None = None
-    force: bool | None = None
+    behaviour: GenerateBehaviour | None = None
 
 
 @dataclass
@@ -87,7 +105,7 @@ def default_config() -> EnvStencilConfig:
             file1=Path(".env"),
             file2=Path(".env.example"),
         ),
-        generate=GenerateConfig(force=False),
+        generate=GenerateConfig(behaviour=GenerateBehaviour.FAIL),
         check=CheckConfig(diff=False),
     )
 
@@ -131,6 +149,22 @@ def _as_path(section: str, key: str, value: Any) -> Path:
     return Path(value)
 
 
+def _as_behaviour(section: str, key: str, value: Any) -> GenerateBehaviour:
+    # `isinstance(True, str)` is False, so booleans and ints are rejected.
+    if not isinstance(value, str):
+        raise ConfigError(
+            f"Invalid configuration: {section}.{key} must be a string."
+        )
+    try:
+        return GenerateBehaviour(value)
+    except ValueError:
+        allowed = ", ".join(b.value for b in GenerateBehaviour)
+        raise ConfigError(
+            f"Invalid configuration: {section}.{key} must be one of: "
+            f"{allowed}."
+        ) from None
+
+
 def _section_table(section: str, raw: Any) -> dict[str, Any]:
     if not isinstance(raw, dict):
         raise ConfigError(
@@ -168,7 +202,7 @@ def _parse_global(raw: Any) -> GlobalConfig:
 
 def _parse_generate(raw: Any) -> GenerateConfig:
     table = _section_table("generate", raw)
-    _reject_unknown_keys("generate", table, {"file1", "file2", "force"})
+    _reject_unknown_keys("generate", table, {"file1", "file2", "behaviour"})
     return GenerateConfig(
         file1=(
             _as_path("generate", "file1", table["file1"])
@@ -180,9 +214,9 @@ def _parse_generate(raw: Any) -> GenerateConfig:
             if "file2" in table
             else None
         ),
-        force=(
-            _as_bool("generate", "force", table["force"])
-            if "force" in table
+        behaviour=(
+            _as_behaviour("generate", "behaviour", table["behaviour"])
+            if "behaviour" in table
             else None
         ),
     )
@@ -419,7 +453,7 @@ class ResolvedGenerateConfig:
 
     file1: Path
     file2: Path
-    force: bool
+    behaviour: GenerateBehaviour
 
 
 def _resolve(qualified_name: str, *candidates: Any) -> Any:
@@ -462,7 +496,8 @@ def resolve_generate_config(
     """Resolve `[generate]` against `[global]`.
 
     `generate.file1` / `generate.file2` win over `global.file1` /
-    `global.file2`; `force` comes straight from `generate.force`.
+    `global.file2`; `behaviour` comes straight from `generate.behaviour`
+    (the composed config carries it thanks to the built-in defaults).
     """
     return ResolvedGenerateConfig(
         file1=_resolve(
@@ -471,5 +506,5 @@ def resolve_generate_config(
         file2=_resolve(
             "generate.file2", config.generate.file2, config.global_.file2
         ),
-        force=_resolve("generate.force", config.generate.force),
+        behaviour=_resolve("generate.behaviour", config.generate.behaviour),
     )

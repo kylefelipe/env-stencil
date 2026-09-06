@@ -76,9 +76,10 @@ envstencil check .env.production .env.production.example --diff
 
 ### Configuração
 
-Origem, destino e os padrões de `--force` / `--diff` podem vir de um arquivo
-TOML, então não é preciso repetir as flags a cada uso. As fontes, da menor
-para a maior precedência: defaults internos → config global do usuário
+Origem, destino, o comportamento do `generate` diante de um destino existente
+(`behaviour`) e o padrão de `--diff` podem vir de um arquivo TOML, então não é
+preciso repetir as flags a cada uso. As fontes, da menor para a maior
+precedência: defaults internos → config global do usuário
 (`~/.config/envstencil/config.toml`) → `[tool.envstencil]` do `pyproject.toml`
 → `.envstencil.toml` → arquivo de `--config` → argumentos e flags da linha de
 comando (que sempre vencem).
@@ -95,12 +96,18 @@ empilhados.
 file1 = ".env.local"
 file2 = ".env.local.example"
 
+[generate]
+behaviour = "force"   # "fail" (padrão) | "force" | "append"
+
 [check]
 diff = true
 ```
 
-As flags `--no-force` e `--no-diff` desligam explicitamente um comportamento
-que a configuração tenha ligado. Detalhes e exemplos:
+Na linha de comando, `--force` e `--append` são overrides explícitos do
+`behaviour` (vencem a configuração), e `--diff` / `--no-diff` fazem o mesmo com
+`[check].diff`. Não existe `--behaviour` nem `--fail`: por enquanto não há
+flag para voltar a `fail` quando a configuração pede `force`/`append`.
+Detalhes e exemplos:
 **[Modo de uso → Configuração](https://env-stencil.readthedocs.io/pt/latest/cli_usage/#configuracao)**.
 
 ## Exemplo

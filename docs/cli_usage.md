@@ -132,17 +132,29 @@ informados, os dois vêm da configuração (ver **Configuração**, abaixo; padr
 
 ## Atualizando um `.env.example` existente
 
-Há três modos, todos pelo mesmo comando:
+O `generate` tem um único conceito de comportamento diante de um destino que
+**já existe**, com três valores — `fail`, `force` e `append`:
 
-| Comando | Comportamento |
-| ------- | ------------- |
-| `{{ commands.run }} generate` | cria o arquivo **só se ele ainda não existir**; se existir, aborta sem tocar em nada |
-| `{{ commands.run }} generate --force` | **regenera e sobrescreve** o `.env.example` por completo |
-| `{{ commands.run }} generate --no-force` | força o comportamento sem `--force`, mesmo que a configuração traga `force = true` |
-| `{{ commands.run }} generate --append` | **preserva** o `.env.example` e acrescenta ao final só as chaves do `.env` que ainda faltam |
+| Comportamento | O que faz |
+| ------------- | --------- |
+| `fail` (padrão) | cria o arquivo **só se ele ainda não existir**; se existir, aborta sem tocar em nada |
+| `force` | **regenera e sobrescreve** o `.env.example` por completo |
+| `append` | **preserva** o `.env.example` e acrescenta ao final só as chaves do `.env` que ainda faltam |
 
-Sem `--force` nem `--no-force`, vale o `force` da configuração (padrão:
-desligado — ver **Configuração**).
+O valor efetivo vem de `[generate].behaviour` na configuração (padrão `fail` —
+ver **Configuração**). Na linha de comando, `--force` e `--append` são
+**overrides explícitos** que vencem a configuração:
+
+| Comando | Resultado |
+| ------- | --------- |
+| `{{ commands.run }} generate` | usa o `behaviour` da configuração |
+| `{{ commands.run }} generate --force` | `force`, seja qual for a configuração |
+| `{{ commands.run }} generate --append` | `append`, seja qual for a configuração |
+
+Não existe `--behaviour` nem `--fail`: por enquanto não há como, pela linha de
+comando, voltar a `fail` quando a configuração pede `force` ou `append` — use
+`--config` apontando para um arquivo com `behaviour = "fail"`, ou ajuste o
+`.envstencil.toml`.
 
 Sem flags, num arquivo que já existe:
 
@@ -296,13 +308,13 @@ faz isso sozinho.
 
 ## Configuração
 
-Os padrões de origem/destino, de `--force` e de `--diff` podem vir de um
-arquivo de configuração TOML, então quem usa o `envstencil` sempre no mesmo
-projeto não precisa repetir as flags.
+Os padrões de origem/destino, do comportamento do `generate` (`behaviour`) e
+de `--diff` podem vir de um arquivo de configuração TOML, então quem usa o
+`envstencil` sempre no mesmo projeto não precisa repetir as flags.
 
 ### Fontes, da menor para a maior precedência
 
-1. **Defaults internos** — `.env` / `.env.example`, sem `--force`, sem `--diff`.
+1. **Defaults internos** — `.env` / `.env.example`, `behaviour = "fail"`, sem `--diff`.
 2. **Config global do usuário** — `$XDG_CONFIG_HOME/envstencil/config.toml`
    (ou `~/.config/envstencil/config.toml`).
 3. **`pyproject.toml`** — seção `[tool.envstencil]`.
@@ -367,7 +379,7 @@ file2 = ".env.example"     # destino / segundo arquivo
 [generate]         # sobrescreve [global] só para o generate
 file1 = ".env"
 file2 = ".env.example"
-force = false
+behaviour = "fail"         # "fail" (padrão) | "force" | "append"
 
 [check]            # sobrescreve [global] só para o check
 file1 = ".env"
@@ -377,6 +389,15 @@ diff = false
 
 Todas as chaves são opcionais. `[generate]` / `[check]` só precisam do que
 diferem de `[global]`.
+
+`behaviour` controla o que o `generate` faz quando o destino **já existe**:
+
+- `"fail"` — gera só se não existir; se existir, aborta (padrão).
+- `"force"` — regenera e sobrescreve o destino.
+- `"append"` — preserva o destino e acrescenta só as variáveis ausentes.
+
+Qualquer outro valor (ou um valor que não seja string) é erro de
+configuração. A chave antiga `force = true` **não** é mais aceita.
 
 No `pyproject.toml` as mesmas seções ficam sob `tool.envstencil`:
 
@@ -389,7 +410,7 @@ file2 = ".env.example"
 diff = true
 
 [tool.envstencil.generate]
-force = true
+behaviour = "force"
 ```
 
 ### `--config`
@@ -436,15 +457,18 @@ Use --diff para ver os detalhes.
 
 ```toml
 [tool.envstencil.generate]
-force = true
+behaviour = "force"
 ```
 
 ```console
 $ {{ commands.run }} generate            # sobrescreve sem pedir --force
 ✅ .env.example gerado a partir de .env
-$ {{ commands.run }} generate --no-force # ignora o force da configuração
-Error: .env.example já existe. Use --force para sobrescrever ou --append para adicionar apenas as novas variáveis.
+$ {{ commands.run }} generate --append   # override da CLI: faz append em vez de sobrescrever
+✅ .env.example atualizado.
 ```
+
+Não há flag para forçar `fail` a partir da CLI; para isso, aponte `--config`
+para um arquivo com `behaviour = "fail"` ou ajuste o `.envstencil.toml`.
 
 ## Limpando linhas em branco
 
