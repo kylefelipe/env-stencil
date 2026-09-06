@@ -1,20 +1,30 @@
-"""Internal configuration model for envstencil.
+"""Internal configuration model and source discovery for envstencil.
 
-Milestone 1: infrastructure only. This module is **not** wired into the CLI,
-`pyproject.toml`, `.envstencil.toml`, the user's global config or `--config`
-yet — it is the reusable base those integrations will build on.
+The model (dataclasses, defaults, parsing, merge) and the discovery layer
+(`load_config` and friends) both live here. It is **not** wired into the CLI
+yet — the existing commands still ignore it — nor does it support `--config`.
 
 Every configurable field is `... | None`: `None` means "not set at this
 layer" and is what `merge_config` uses to decide whether an override wins.
 `False` is a real, explicit value and never behaves like `None`.
+
+Effective config is built layer by layer, lowest precedence first:
+built-in defaults → user global config → `pyproject.toml` `[tool.envstencil]`
+→ `<cwd>/.envstencil.toml`.
 """
 
 from __future__ import annotations
 
+import os
 import tomllib
 from dataclasses import dataclass, field, fields, replace
 from pathlib import Path
 from typing import Any
+
+USER_CONFIG_DIRNAME = "envstencil"
+USER_CONFIG_FILENAME = "config.toml"
+PROJECT_CONFIG_FILENAME = ".envstencil.toml"
+PYPROJECT_FILENAME = "pyproject.toml"
 
 
 class ConfigError(ValueError):
@@ -243,3 +253,86 @@ def merge_config(
         generate=_merge_section(base.generate, override.generate),
         check=_merge_section(base.check, override.check),
     )
+
+
+# --- source discovery --------------------------------------------------
+
+
+def get_user_config_path() -> Path:
+    """Return the path of the user's global config file (XDG-aware).
+
+    `$XDG_CONFIG_HOME/envstencil/config.toml` when `XDG_CONFIG_HOME` is set
+    and non-empty, otherwise `~/.config/envstencil/config.toml`.
+    """
+    xdg = os.environ.get("XDG_CONFIG_HOME")
+    base = Path(xdg) if xdg else Path.home() / ".config"
+    return base / USER_CONFIG_DIRNAME / USER_CONFIG_FILENAME
+
+
+def _load_config_file(path: Path) -> EnvStencilConfig:
+    """`parse_config(load_toml(path))` if `path` is a file, else an empty
+    config.
+
+    A missing file just means "no override at this layer". An existing file
+    that is unreadable, is invalid TOML, or has bad values propagates the
+    error (`ConfigError` or the filesystem exception).
+    """
+    if not path.is_file():
+        return EnvStencilConfig()
+    return parse_config(load_toml(path))
+
+
+def load_user_config() -> EnvStencilConfig:
+    """Load the user's global config, or an empty config if it is absent."""
+    return _load_config_file(get_user_config_path())
+
+
+def load_pyproject_config(cwd: Path | None = None) -> EnvStencilConfig:
+    """Load `[tool.envstencil]` from `<cwd>/pyproject.toml`.
+
+    Returns an empty config when `pyproject.toml` is missing or has no
+    `[tool.envstencil]`. Other tables in the file are ignored. Raises
+    `ConfigError` for invalid TOML, invalid values, or a `tool` /
+    `tool.envstencil` that is not a table.
+    """
+    path = (cwd or Path.cwd()) / PYPROJECT_FILENAME
+    if not path.is_file():
+        return EnvStencilConfig()
+
+    data = load_toml(path)
+    tool = data.get("tool", {})
+    if not isinstance(tool, dict):
+        raise ConfigError("Invalid configuration: [tool] must be a table.")
+    section = tool.get("envstencil", {})
+    if not isinstance(section, dict):
+        raise ConfigError(
+            "Invalid configuration: [tool.envstencil] must be a table."
+        )
+    return parse_config(section)
+
+
+def load_project_config(cwd: Path | None = None) -> EnvStencilConfig:
+    """Load `<cwd>/.envstencil.toml`, or an empty config if it is absent.
+
+    No ascending search — only the given directory is looked at.
+    """
+    path = (cwd or Path.cwd()) / PROJECT_CONFIG_FILENAME
+    return _load_config_file(path)
+
+
+def load_config(cwd: Path | None = None) -> EnvStencilConfig:
+    """Build the effective configuration from every discovered source.
+
+    Layers, lowest precedence first: built-in defaults, the user's global
+    config, `pyproject.toml` `[tool.envstencil]`, then
+    `<cwd>/.envstencil.toml`. Merging stays field by field
+    (`merge_config`); no section ever replaces another section wholesale.
+    A source that is absent contributes an empty config; a source that
+    exists but is invalid raises.
+    """
+    cwd = cwd or Path.cwd()
+    config = default_config()
+    config = merge_config(config, load_user_config())
+    config = merge_config(config, load_pyproject_config(cwd))
+    config = merge_config(config, load_project_config(cwd))
+    return config

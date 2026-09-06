@@ -10,7 +10,12 @@ from envstencil.config import (
     GenerateConfig,
     GlobalConfig,
     default_config,
+    get_user_config_path,
+    load_config,
+    load_project_config,
+    load_pyproject_config,
     load_toml,
+    load_user_config,
     merge_config,
     parse_config,
 )
@@ -254,3 +259,285 @@ def test_merge_with_defaults_as_base() -> None:
     assert result.global_.file1 == Path(".env")
     assert result.generate.force is False
     assert result.check.diff is True
+
+
+# --- get_user_config_path -----------------------------------------
+
+
+def test_user_config_path_uses_xdg_config_home(monkeypatch) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", "/tmp/xdg-config")
+
+    assert get_user_config_path() == Path(
+        "/tmp/xdg-config/envstencil/config.toml"
+    )
+
+
+def test_user_config_path_falls_back_to_dot_config(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+    monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
+
+    assert get_user_config_path() == (
+        tmp_path / "home" / ".config" / "envstencil" / "config.toml"
+    )
+
+
+def test_user_config_path_empty_xdg_falls_back(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", "")
+    monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
+
+    assert get_user_config_path() == (
+        tmp_path / "home" / ".config" / "envstencil" / "config.toml"
+    )
+
+
+# --- load_user_config -----------------------------------------
+
+
+def _write_user_config(tmp_path: Path, monkeypatch, content: str) -> Path:
+    """Point XDG at a tmp dir and write the global config file there."""
+    xdg = tmp_path / "xdg"
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(xdg))
+    path = xdg / "envstencil" / "config.toml"
+    path.parent.mkdir(parents=True)
+    path.write_text(content, encoding="utf-8")
+    return path
+
+
+def test_load_user_config_missing_is_empty(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+
+    assert load_user_config() == EnvStencilConfig()
+
+
+def test_load_user_config_reads_valid_file(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _write_user_config(
+        tmp_path,
+        monkeypatch,
+        "[global]\nfile1 = '.env'\n\n[check]\ndiff = true\n",
+    )
+
+    cfg = load_user_config()
+
+    assert cfg.global_.file1 == Path(".env")
+    assert cfg.check.diff is True
+
+
+def test_load_user_config_invalid_toml_raises(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _write_user_config(tmp_path, monkeypatch, "[global\nfile1 = '.env'\n")
+
+    with pytest.raises(ConfigError):
+        load_user_config()
+
+
+def test_load_user_config_invalid_type_raises(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _write_user_config(tmp_path, monkeypatch, "[check]\ndiff = 'sim'\n")
+
+    with pytest.raises(ConfigError):
+        load_user_config()
+
+
+# --- load_pyproject_config --------------------------------------
+
+
+def _write(path: Path, content: str) -> Path:
+    path.write_text(content, encoding="utf-8")
+    return path
+
+
+def test_load_pyproject_missing_is_empty(tmp_path: Path) -> None:
+    assert load_pyproject_config(tmp_path) == EnvStencilConfig()
+
+
+def test_load_pyproject_without_tool_section_is_empty(tmp_path: Path) -> None:
+    _write(
+        tmp_path / "pyproject.toml",
+        "[project]\nname = 'x'\n\n[tool.black]\nline-length = 79\n",
+    )
+
+    assert load_pyproject_config(tmp_path) == EnvStencilConfig()
+
+
+def test_load_pyproject_reads_global(tmp_path: Path) -> None:
+    _write(
+        tmp_path / "pyproject.toml",
+        "[tool.envstencil.global]\nfile1 = '.env'\nfile2 = '.env.example'\n",
+    )
+
+    cfg = load_pyproject_config(tmp_path)
+
+    assert cfg.global_.file1 == Path(".env")
+    assert cfg.global_.file2 == Path(".env.example")
+
+
+def test_load_pyproject_reads_generate(tmp_path: Path) -> None:
+    _write(
+        tmp_path / "pyproject.toml",
+        "[tool.envstencil.generate]\nforce = true\n",
+    )
+
+    assert load_pyproject_config(tmp_path).generate.force is True
+
+
+def test_load_pyproject_reads_check(tmp_path: Path) -> None:
+    _write(
+        tmp_path / "pyproject.toml",
+        "[tool.envstencil.check]\ndiff = true\n",
+    )
+
+    assert load_pyproject_config(tmp_path).check.diff is True
+
+
+def test_load_pyproject_ignores_other_tables(tmp_path: Path) -> None:
+    _write(
+        tmp_path / "pyproject.toml",
+        "[project]\nname = 'x'\n\n[tool.isort]\nprofile = 'black'\n\n"
+        "[tool.envstencil.check]\ndiff = true\n",
+    )
+
+    assert load_pyproject_config(tmp_path).check.diff is True
+
+
+def test_load_pyproject_tool_not_a_table_raises(tmp_path: Path) -> None:
+    _write(tmp_path / "pyproject.toml", "tool = 'foo'\n")
+
+    with pytest.raises(ConfigError) as excinfo:
+        load_pyproject_config(tmp_path)
+
+    assert "tool" in str(excinfo.value)
+
+
+def test_load_pyproject_envstencil_not_a_table_raises(tmp_path: Path) -> None:
+    _write(tmp_path / "pyproject.toml", "[tool]\nenvstencil = 'foo'\n")
+
+    with pytest.raises(ConfigError) as excinfo:
+        load_pyproject_config(tmp_path)
+
+    assert "tool.envstencil" in str(excinfo.value)
+
+
+def test_load_pyproject_invalid_toml_raises(tmp_path: Path) -> None:
+    _write(
+        tmp_path / "pyproject.toml", "[tool.envstencil.check\ndiff = true\n"
+    )
+
+    with pytest.raises(ConfigError):
+        load_pyproject_config(tmp_path)
+
+
+# --- load_project_config -------------------------------------
+
+
+def test_load_project_config_missing_is_empty(tmp_path: Path) -> None:
+    assert load_project_config(tmp_path) == EnvStencilConfig()
+
+
+def test_load_project_config_reads_valid_file(tmp_path: Path) -> None:
+    _write(
+        tmp_path / ".envstencil.toml",
+        "[global]\nfile1 = '.env.ci'\n\n[check]\ndiff = false\n",
+    )
+
+    cfg = load_project_config(tmp_path)
+
+    assert cfg.global_.file1 == Path(".env.ci")
+    assert cfg.check.diff is False
+
+
+def test_load_project_config_invalid_toml_raises(tmp_path: Path) -> None:
+    _write(tmp_path / ".envstencil.toml", "[check\ndiff = true\n")
+
+    with pytest.raises(ConfigError):
+        load_project_config(tmp_path)
+
+
+# --- load_config (composition / precedence) ----------------
+
+
+def test_load_config_no_sources_equals_defaults(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+
+    assert load_config(tmp_path) == default_config()
+
+
+def test_load_config_precedence_example_from_spec(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _write_user_config(
+        tmp_path,
+        monkeypatch,
+        "[global]\nfile1 = '.env'\nfile2 = '.env.example'\n\n"
+        "[check]\ndiff = true\n",
+    )
+    _write(
+        tmp_path / "pyproject.toml",
+        "[tool.envstencil.global]\nfile1 = '.env.local'\n",
+    )
+    _write(tmp_path / ".envstencil.toml", "[check]\ndiff = false\n")
+
+    cfg = load_config(tmp_path)
+
+    assert cfg.global_.file1 == Path(".env.local")
+    assert cfg.global_.file2 == Path(".env.example")
+    assert cfg.check.diff is False
+
+
+def test_load_config_project_wins_over_pyproject_and_user(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _write_user_config(tmp_path, monkeypatch, "[check]\ndiff = true\n")
+    # pyproject does not define diff
+    _write(
+        tmp_path / "pyproject.toml",
+        "[tool.envstencil.global]\nfile1 = '.env'\n",
+    )
+    _write(tmp_path / ".envstencil.toml", "[check]\ndiff = false\n")
+
+    assert load_config(tmp_path).check.diff is False
+
+
+def test_load_config_partial_merge_across_sources(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _write_user_config(
+        tmp_path,
+        monkeypatch,
+        "[global]\nfile1 = 'A'\nfile2 = 'B'\n",
+    )
+    _write(
+        tmp_path / "pyproject.toml",
+        "[tool.envstencil.global]\nfile1 = 'C'\n",
+    )
+    _write(tmp_path / ".envstencil.toml", "[check]\ndiff = true\n")
+
+    cfg = load_config(tmp_path)
+
+    assert cfg.global_.file1 == Path("C")
+    assert cfg.global_.file2 == Path("B")
+    assert cfg.check.diff is True
+
+
+def test_load_config_keeps_defaults_when_layer_silent(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    _write(tmp_path / ".envstencil.toml", "[check]\ndiff = true\n")
+
+    cfg = load_config(tmp_path)
+
+    assert cfg.global_.file1 == Path(".env")  # from defaults
+    assert cfg.generate.force is False  # from defaults
+    assert cfg.check.diff is True  # from .envstencil.toml
