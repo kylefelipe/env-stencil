@@ -1,8 +1,10 @@
 """Internal configuration model and source discovery for envstencil.
 
-The model (dataclasses, defaults, parsing, merge) and the discovery layer
-(`load_config` and friends) both live here. It is **not** wired into the CLI
-yet — the existing commands still ignore it — nor does it support `--config`.
+The model (dataclasses, defaults, parsing, merge), the discovery layer
+(`load_config` and friends) and per-command resolution
+(`resolve_check_config` / `resolve_generate_config`) all live here. The
+`--config` option is parsed by the CLI and feeds `load_config`, but the
+existing commands do **not** yet act on the resolved configuration.
 
 Every configurable field is `... | None`: `None` means "not set at this
 layer" and is what `merge_config` uses to decide whether an override wins.
@@ -10,7 +12,7 @@ layer" and is what `merge_config` uses to decide whether an override wins.
 
 Effective config is built layer by layer, lowest precedence first:
 built-in defaults → user global config → `pyproject.toml` `[tool.envstencil]`
-→ `<cwd>/.envstencil.toml`.
+→ `<cwd>/.envstencil.toml` → `--config` file (when given).
 """
 
 from __future__ import annotations
@@ -320,19 +322,114 @@ def load_project_config(cwd: Path | None = None) -> EnvStencilConfig:
     return _load_config_file(path)
 
 
-def load_config(cwd: Path | None = None) -> EnvStencilConfig:
-    """Build the effective configuration from every discovered source.
+def load_explicit_config(path: Path) -> EnvStencilConfig:
+    """Load a config file the user named explicitly (via `--config`).
+
+    Unlike the auto-discovered sources, a missing `path` is **not** silently
+    treated as "no config" — the user asked for this file. `load_toml` /
+    `Path.open` handle a missing path, a directory or a permission problem
+    (those filesystem errors propagate); invalid TOML or invalid values
+    surface as `ConfigError`.
+    """
+    return parse_config(load_toml(path))
+
+
+def load_config(
+    cwd: Path | None = None,
+    explicit_config: Path | None = None,
+) -> EnvStencilConfig:
+    """Build the effective configuration from every source.
 
     Layers, lowest precedence first: built-in defaults, the user's global
-    config, `pyproject.toml` `[tool.envstencil]`, then
-    `<cwd>/.envstencil.toml`. Merging stays field by field
-    (`merge_config`); no section ever replaces another section wholesale.
-    A source that is absent contributes an empty config; a source that
-    exists but is invalid raises.
+    config, `pyproject.toml` `[tool.envstencil]`, `<cwd>/.envstencil.toml`,
+    and finally — when given — the file passed as `explicit_config`
+    (`--config`). Merging stays field by field (`merge_config`); no section
+    ever replaces another section wholesale, and `explicit_config` is one
+    more layer, not a replacement for the rest.
+
+    An absent auto-discovered source contributes an empty config; a source
+    that exists but is invalid raises. `explicit_config` additionally raises
+    when it does not exist.
     """
     cwd = cwd or Path.cwd()
     config = default_config()
     config = merge_config(config, load_user_config())
     config = merge_config(config, load_pyproject_config(cwd))
     config = merge_config(config, load_project_config(cwd))
+    if explicit_config is not None:
+        config = merge_config(config, load_explicit_config(explicit_config))
     return config
+
+
+# --- command resolution ----------------------------------------------
+
+
+@dataclass
+class ResolvedCheckConfig:
+    """`check` configuration with every value settled (no `None`)."""
+
+    file1: Path
+    file2: Path
+    diff: bool
+
+
+@dataclass
+class ResolvedGenerateConfig:
+    """`generate` configuration with every value settled (no `None`)."""
+
+    file1: Path
+    file2: Path
+    force: bool
+
+
+def _resolve(qualified_name: str, *candidates: Any) -> Any:
+    """Return the first candidate that is not `None`.
+
+    Explicit `None` checks (never `a or b`) so `False` and empty strings are
+    kept. If every candidate is `None` the value cannot be resolved and a
+    `ConfigError` is raised, so these functions are safe even on a bare
+    `EnvStencilConfig()`.
+    """
+    for candidate in candidates:
+        if candidate is not None:
+            return candidate
+    raise ConfigError(
+        f"Invalid configuration: {qualified_name} could not be resolved."
+    )
+
+
+def resolve_check_config(config: EnvStencilConfig) -> ResolvedCheckConfig:
+    """Resolve `[check]` against `[global]`.
+
+    `check.file1` / `check.file2` win over `global.file1` / `global.file2`;
+    `diff` comes straight from `check.diff` (the composed config carries it
+    thanks to the built-in defaults).
+    """
+    return ResolvedCheckConfig(
+        file1=_resolve(
+            "check.file1", config.check.file1, config.global_.file1
+        ),
+        file2=_resolve(
+            "check.file2", config.check.file2, config.global_.file2
+        ),
+        diff=_resolve("check.diff", config.check.diff),
+    )
+
+
+def resolve_generate_config(
+    config: EnvStencilConfig,
+) -> ResolvedGenerateConfig:
+    """Resolve `[generate]` against `[global]`.
+
+    `generate.file1` / `generate.file2` win over `global.file1` /
+    `global.file2`; `force` comes straight from `generate.force`.
+    """
+    return ResolvedGenerateConfig(
+        file1=_resolve(
+            "generate.file1", config.generate.file1, config.global_.file1
+        ),
+        file2=_resolve(
+            "generate.file2", config.generate.file2, config.global_.file2
+        ),
+        force=_resolve("generate.force", config.generate.force),
+    )

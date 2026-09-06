@@ -9,6 +9,8 @@ from envstencil.config import (
     EnvStencilConfig,
     GenerateConfig,
     GlobalConfig,
+    ResolvedCheckConfig,
+    ResolvedGenerateConfig,
     default_config,
     get_user_config_path,
     load_config,
@@ -18,6 +20,8 @@ from envstencil.config import (
     load_user_config,
     merge_config,
     parse_config,
+    resolve_check_config,
+    resolve_generate_config,
 )
 
 # --- defaults -----------------------------------------------------------
@@ -572,3 +576,341 @@ def test_load_pyproject_config_directory_propagates_filesystem_error(
 
     with pytest.raises((IsADirectoryError, PermissionError)):
         load_pyproject_config(tmp_path)
+
+
+# --- load_config with explicit --config -----------------------
+
+
+def _write_ci(tmp_path: Path, content: str) -> Path:
+    path = tmp_path / "ci.toml"
+    path.write_text(content, encoding="utf-8")
+    return path
+
+
+def test_load_config_without_explicit_is_unchanged(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    _write(tmp_path / ".envstencil.toml", "[check]\ndiff = true\n")
+
+    assert load_config(tmp_path) == load_config(tmp_path, explicit_config=None)
+    assert load_config(tmp_path).check.diff is True
+
+
+def test_explicit_config_is_applied_last(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    _write(tmp_path / ".envstencil.toml", "[check]\ndiff = true\n")
+    ci = _write_ci(tmp_path, "[check]\ndiff = false\n")
+
+    assert load_config(tmp_path, explicit_config=ci).check.diff is False
+
+
+def test_explicit_config_partial_merge(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    _write(
+        tmp_path / ".envstencil.toml",
+        "[global]\nfile1 = '.env'\nfile2 = '.env.example'\n",
+    )
+    ci = _write_ci(tmp_path, "[global]\nfile1 = '.env.ci'\n")
+
+    cfg = load_config(tmp_path, explicit_config=ci)
+
+    assert cfg.global_.file1 == Path(".env.ci")
+    assert cfg.global_.file2 == Path(".env.example")
+
+
+def test_explicit_config_overrides_project(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    _write(tmp_path / ".envstencil.toml", "[global]\nfile1 = '.env.project'\n")
+    ci = _write_ci(tmp_path, "[global]\nfile1 = '.env.ci'\n")
+
+    assert load_config(tmp_path, explicit_config=ci).global_.file1 == Path(
+        ".env.ci"
+    )
+
+
+def test_explicit_config_overrides_pyproject(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    _write(
+        tmp_path / "pyproject.toml",
+        "[tool.envstencil.global]\nfile1 = '.env.pyproject'\n",
+    )
+    ci = _write_ci(tmp_path, "[global]\nfile1 = '.env.ci'\n")
+
+    assert load_config(tmp_path, explicit_config=ci).global_.file1 == Path(
+        ".env.ci"
+    )
+
+
+def test_explicit_config_overrides_user(tmp_path: Path, monkeypatch) -> None:
+    _write_user_config(
+        tmp_path, monkeypatch, "[global]\nfile1 = '.env.user'\n"
+    )
+    ci = _write_ci(tmp_path, "[global]\nfile1 = '.env.ci'\n")
+
+    assert load_config(tmp_path, explicit_config=ci).global_.file1 == Path(
+        ".env.ci"
+    )
+
+
+def test_explicit_config_missing_raises(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+
+    with pytest.raises(FileNotFoundError):
+        load_config(tmp_path, explicit_config=tmp_path / "nao-existe.toml")
+
+
+def test_explicit_config_directory_raises_filesystem_error(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    (tmp_path / "asdir.toml").mkdir()
+
+    with pytest.raises((IsADirectoryError, PermissionError)):
+        load_config(tmp_path, explicit_config=tmp_path / "asdir.toml")
+
+
+def test_explicit_config_invalid_toml_raises(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    ci = _write_ci(tmp_path, "[check\ndiff = true\n")
+
+    with pytest.raises(ConfigError):
+        load_config(tmp_path, explicit_config=ci)
+
+
+def test_explicit_config_invalid_type_raises(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    ci = _write_ci(tmp_path, "[check]\ndiff = 'sim'\n")
+
+    with pytest.raises(ConfigError):
+        load_config(tmp_path, explicit_config=ci)
+
+
+def test_explicit_config_is_a_layer_not_a_replacement(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _write_user_config(
+        tmp_path,
+        monkeypatch,
+        "[global]\nfile1 = '.env'\nfile2 = '.env.example'\n",
+    )
+    _write(
+        tmp_path / "pyproject.toml",
+        "[tool.envstencil.generate]\nforce = true\n",
+    )
+    ci = _write_ci(tmp_path, "[check]\ndiff = true\n")
+
+    cfg = load_config(tmp_path, explicit_config=ci)
+
+    assert cfg.global_.file1 == Path(".env")  # inherited from user
+    assert cfg.generate.force is True  # inherited from pyproject
+    assert cfg.check.diff is True  # from ci.toml
+
+
+def test_load_config_full_precedence_example_from_spec(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _write_user_config(
+        tmp_path,
+        monkeypatch,
+        "[global]\nfile1 = '.env'\nfile2 = '.env.example'\n\n"
+        "[check]\ndiff = true\n",
+    )
+    _write(
+        tmp_path / "pyproject.toml",
+        "[tool.envstencil.global]\nfile1 = '.env.local'\n",
+    )
+    _write(tmp_path / ".envstencil.toml", "[generate]\nforce = true\n")
+    ci = _write_ci(
+        tmp_path,
+        "[global]\nfile1 = '.env.ci'\nfile2 = '.env.ci.example'\n\n"
+        "[check]\ndiff = false\n",
+    )
+
+    cfg = load_config(tmp_path, explicit_config=ci)
+
+    assert cfg.global_.file1 == Path(".env.ci")
+    assert cfg.global_.file2 == Path(".env.ci.example")
+    assert cfg.generate.force is True
+    assert cfg.check.diff is False
+
+
+# --- resolve_check_config -----------------------------------
+
+
+def test_resolve_check_inherits_global_files() -> None:
+    cfg = merge_config(
+        default_config(),
+        parse_config(
+            {
+                "global": {"file1": ".env", "file2": ".env.example"},
+                "check": {"diff": True},
+            }
+        ),
+    )
+
+    resolved = resolve_check_config(cfg)
+
+    assert resolved == ResolvedCheckConfig(
+        file1=Path(".env"), file2=Path(".env.example"), diff=True
+    )
+
+
+def test_resolve_check_file1_overrides_global() -> None:
+    cfg = parse_config(
+        {
+            "global": {"file1": ".env", "file2": ".env.example"},
+            "check": {"file1": ".env.production", "diff": False},
+        }
+    )
+
+    resolved = resolve_check_config(cfg)
+
+    assert resolved.file1 == Path(".env.production")
+    assert resolved.file2 == Path(".env.example")
+    assert resolved.diff is False
+
+
+def test_resolve_check_file2_overrides_global() -> None:
+    cfg = parse_config(
+        {
+            "global": {"file1": ".env", "file2": ".env.example"},
+            "check": {"file2": ".env.prod.example", "diff": True},
+        }
+    )
+
+    assert resolve_check_config(cfg).file2 == Path(".env.prod.example")
+    assert resolve_check_config(cfg).file1 == Path(".env")
+
+
+def test_resolve_check_both_overridden() -> None:
+    cfg = parse_config(
+        {
+            "global": {"file1": ".env", "file2": ".env.example"},
+            "check": {
+                "file1": ".env.production",
+                "file2": ".env.production.example",
+                "diff": True,
+            },
+        }
+    )
+
+    resolved = resolve_check_config(cfg)
+
+    assert resolved.file1 == Path(".env.production")
+    assert resolved.file2 == Path(".env.production.example")
+
+
+def test_resolve_check_diff_true_and_false_preserved() -> None:
+    base = {"global": {"file1": ".env", "file2": ".env.example"}}
+
+    assert (
+        resolve_check_config(
+            parse_config({**base, "check": {"diff": True}})
+        ).diff
+        is True
+    )
+    assert (
+        resolve_check_config(
+            parse_config({**base, "check": {"diff": False}})
+        ).diff
+        is False
+    )
+
+
+def test_resolve_check_unresolvable_raises() -> None:
+    with pytest.raises(ConfigError) as excinfo:
+        resolve_check_config(EnvStencilConfig())
+
+    assert "check.file1" in str(excinfo.value)
+    assert "could not be resolved" in str(excinfo.value)
+
+
+def test_resolve_check_unresolvable_diff_raises() -> None:
+    cfg = parse_config({"global": {"file1": ".env", "file2": ".env.example"}})
+
+    with pytest.raises(ConfigError) as excinfo:
+        resolve_check_config(cfg)
+
+    assert "check.diff" in str(excinfo.value)
+
+
+# --- resolve_generate_config ------------------------------
+
+
+def test_resolve_generate_inherits_global_files() -> None:
+    cfg = merge_config(
+        default_config(),
+        parse_config({"global": {"file1": ".env", "file2": ".env.example"}}),
+    )
+
+    resolved = resolve_generate_config(cfg)
+
+    assert resolved == ResolvedGenerateConfig(
+        file1=Path(".env"), file2=Path(".env.example"), force=False
+    )
+
+
+def test_resolve_generate_file1_overrides_global() -> None:
+    cfg = parse_config(
+        {
+            "global": {"file1": ".env", "file2": ".env.example"},
+            "generate": {"file1": ".env.prod", "force": False},
+        }
+    )
+
+    resolved = resolve_generate_config(cfg)
+
+    assert resolved.file1 == Path(".env.prod")
+    assert resolved.file2 == Path(".env.example")
+
+
+def test_resolve_generate_file2_overrides_global() -> None:
+    cfg = parse_config(
+        {
+            "global": {"file1": ".env", "file2": ".env.example"},
+            "generate": {"file2": ".env.prod.example", "force": True},
+        }
+    )
+
+    assert resolve_generate_config(cfg).file2 == Path(".env.prod.example")
+
+
+def test_resolve_generate_force_true_and_false_preserved() -> None:
+    base = {"global": {"file1": ".env", "file2": ".env.example"}}
+
+    assert (
+        resolve_generate_config(
+            parse_config({**base, "generate": {"force": True}})
+        ).force
+        is True
+    )
+    assert (
+        resolve_generate_config(
+            parse_config({**base, "generate": {"force": False}})
+        ).force
+        is False
+    )
+
+
+def test_resolve_generate_unresolvable_raises() -> None:
+    with pytest.raises(ConfigError) as excinfo:
+        resolve_generate_config(EnvStencilConfig())
+
+    assert "generate.file1" in str(excinfo.value)
+
+
+def test_resolve_generate_from_defaults_is_complete() -> None:
+    resolved = resolve_generate_config(default_config())
+
+    assert resolved == ResolvedGenerateConfig(
+        file1=Path(".env"), file2=Path(".env.example"), force=False
+    )

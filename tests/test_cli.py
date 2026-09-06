@@ -355,3 +355,61 @@ def test_check_does_not_create_or_touch_files(
     CliRunner().invoke(main, ["check", "--diff"])
 
     assert sorted(p.name for p in tmp_path.iterdir()) == before
+
+
+# --- --config global option (milestone 3) --------------------
+
+
+def test_config_option_accepted_with_help(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "whatever.toml").write_text("[check]\ndiff = true\n", "utf-8")
+
+    result = CliRunner().invoke(main, ["--config", "whatever.toml", "--help"])
+
+    assert result.exit_code == 0
+    assert "--config" in result.output
+
+
+def test_config_missing_file_fails_without_traceback(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    Path(".env").write_text("A=1\n", encoding="utf-8")
+    Path(".env.example").write_text("A=x\n", encoding="utf-8")
+
+    result = CliRunner().invoke(main, ["--config", "nao-existe.toml", "check"])
+
+    assert result.exit_code != 0
+    assert "Error" in result.output
+    assert "Traceback" not in result.output
+
+
+def test_config_invalid_toml_fails_without_traceback(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    Path(".env").write_text("A=1\n", encoding="utf-8")
+    Path(".env.example").write_text("A=x\n", encoding="utf-8")
+    Path("broken.toml").write_text("[check\ndiff = true\n", encoding="utf-8")
+
+    result = CliRunner().invoke(main, ["--config", "broken.toml", "check"])
+
+    assert result.exit_code != 0
+    assert "Traceback" not in result.output
+    assert "Invalid TOML configuration" in result.output
+
+
+def test_config_valid_does_not_change_check_behaviour(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    Path(".env").write_text("A=1\nB=2\n", encoding="utf-8")
+    Path(".env.example").write_text("A=x\n", encoding="utf-8")
+    # config says diff=true, but the command must ignore it in this milestone
+    Path("cfg.toml").write_text("[check]\ndiff = true\n", encoding="utf-8")
+
+    without = CliRunner().invoke(main, ["check"])
+    with_config = CliRunner().invoke(main, ["--config", "cfg.toml", "check"])
+
+    assert with_config.exit_code == without.exit_code == 1
+    assert with_config.output == without.output

@@ -6,6 +6,7 @@ from pathlib import Path
 
 import click
 
+from .config import ConfigError, load_config
 from .core import (
     DEFAULT_PLACEHOLDER,
     AppendResult,
@@ -25,8 +26,29 @@ class _InputError(click.ClickException):
 
 @click.group()
 @click.version_option()
-def main() -> None:
+@click.option(
+    "--config",
+    "config_path",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Arquivo de configuração TOML explícito (maior precedência).",
+)
+@click.pass_context
+def main(ctx: click.Context, config_path: Path | None) -> None:
     """envstencil — gera um .env.example seguro a partir do seu .env."""
+    # Effective configuration is built once here and stashed on the context.
+    # The subcommands do not act on it yet (that is the next milestone) —
+    # this only makes the option available and surfaces config errors early
+    # and without a traceback.
+    try:
+        config = load_config(cwd=Path.cwd(), explicit_config=config_path)
+    except ConfigError as exc:
+        raise _InputError(str(exc)) from exc
+    except OSError as exc:
+        raise _InputError(
+            f"Não foi possível ler a configuração: {exc}"
+        ) from exc
+    ctx.obj = {"config": config}
 
 
 def _report_append(result: AppendResult, source: Path) -> None:
