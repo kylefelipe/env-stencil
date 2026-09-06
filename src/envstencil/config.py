@@ -2,9 +2,7 @@
 
 The model (dataclasses, defaults, parsing, merge), the discovery layer
 (`load_config` and friends) and per-command resolution
-(`resolve_check_config` / `resolve_generate_config`) all live here. The
-`--config` option is parsed by the CLI and feeds `load_config`, but the
-existing commands do **not** yet act on the resolved configuration.
+(`resolve_check_config` / `resolve_generate_config`) all live here.
 
 Every configurable field is `... | None`: `None` means "not set at this
 layer" and is what `merge_config` uses to decide whether an override wins.
@@ -12,7 +10,13 @@ layer" and is what `merge_config` uses to decide whether an override wins.
 
 Effective config is built layer by layer, lowest precedence first:
 built-in defaults → user global config → `pyproject.toml` `[tool.envstencil]`
-→ `<cwd>/.envstencil.toml` → `--config` file (when given).
+→ `.envstencil.toml` → `--config` file (when given).
+
+`pyproject.toml` and `.envstencil.toml` are discovered independently, each
+searched from `cwd` upward to the filesystem root; only the occurrence
+closest to `cwd` is used for each name (ancestor files are never stacked).
+The `--config` file and the XDG user config do not take part in this
+upward search.
 """
 
 from __future__ import annotations
@@ -260,6 +264,30 @@ def merge_config(
 # --- source discovery --------------------------------------------------
 
 
+def _find_upwards(filename: str, cwd: Path | None = None) -> Path | None:
+    """Search `filename` from `cwd` upward to the filesystem root.
+
+    Returns the first ``<dir>/<filename>`` that exists, walking ``cwd``,
+    ``cwd.parent``, … up to the root. Existence is checked with
+    ``Path.exists()`` (not ``is_file()``): a candidate that exists but is a
+    directory or is unreadable still ends the search, so the reading layer
+    can raise the filesystem error instead of the walk silently skipping it.
+    Returns `None` when no ancestor holds the name.
+
+    The walk stops at the root (``current.parent == current``), so it always
+    terminates. ``cwd`` defaults to `Path.cwd()`. Paths are used as given —
+    no ``resolve()``, no symlink handling.
+    """
+    current = cwd if cwd is not None else Path.cwd()
+    while True:
+        candidate = current / filename
+        if candidate.exists():
+            return candidate
+        if current.parent == current:
+            return None
+        current = current.parent
+
+
 def get_user_config_path() -> Path:
     """Return the path of the user's global config file (XDG-aware).
 
@@ -290,15 +318,16 @@ def load_user_config() -> EnvStencilConfig:
 
 
 def load_pyproject_config(cwd: Path | None = None) -> EnvStencilConfig:
-    """Load `[tool.envstencil]` from `<cwd>/pyproject.toml`.
+    """Load `[tool.envstencil]` from the nearest `pyproject.toml`.
 
-    Returns an empty config when `pyproject.toml` is missing or has no
-    `[tool.envstencil]`. Other tables in the file are ignored. Raises
-    `ConfigError` for invalid TOML, invalid values, or a `tool` /
-    `tool.envstencil` that is not a table.
+    `pyproject.toml` is looked up from `cwd` upward to the filesystem root
+    (`_find_upwards`); the closest one wins. Returns an empty config when no
+    ancestor has a `pyproject.toml` or it has no `[tool.envstencil]`. Other
+    tables in the file are ignored. Raises `ConfigError` for invalid TOML,
+    invalid values, or a `tool` / `tool.envstencil` that is not a table.
     """
-    path = (cwd or Path.cwd()) / PYPROJECT_FILENAME
-    if not path.exists():
+    path = _find_upwards(PYPROJECT_FILENAME, cwd)
+    if path is None:
         return EnvStencilConfig()
 
     data = load_toml(path)
@@ -314,11 +343,16 @@ def load_pyproject_config(cwd: Path | None = None) -> EnvStencilConfig:
 
 
 def load_project_config(cwd: Path | None = None) -> EnvStencilConfig:
-    """Load `<cwd>/.envstencil.toml`, or an empty config if it is absent.
+    """Load the nearest `.envstencil.toml`, or an empty config if none exists.
 
-    No ascending search — only the given directory is looked at.
+    `.envstencil.toml` is looked up from `cwd` upward to the filesystem root
+    (`_find_upwards`); only the closest one is read — ancestor files are
+    never stacked. A path that exists but is a directory or is unreadable
+    still ends the search and lets the filesystem error propagate.
     """
-    path = (cwd or Path.cwd()) / PROJECT_CONFIG_FILENAME
+    path = _find_upwards(PROJECT_CONFIG_FILENAME, cwd)
+    if path is None:
+        return EnvStencilConfig()
     return _load_config_file(path)
 
 
@@ -341,11 +375,17 @@ def load_config(
     """Build the effective configuration from every source.
 
     Layers, lowest precedence first: built-in defaults, the user's global
-    config, `pyproject.toml` `[tool.envstencil]`, `<cwd>/.envstencil.toml`,
-    and finally — when given — the file passed as `explicit_config`
-    (`--config`). Merging stays field by field (`merge_config`); no section
-    ever replaces another section wholesale, and `explicit_config` is one
-    more layer, not a replacement for the rest.
+    config, `pyproject.toml` `[tool.envstencil]`, `.envstencil.toml`, and
+    finally — when given — the file passed as `explicit_config` (`--config`).
+    Merging stays field by field (`merge_config`); no section ever replaces
+    another section wholesale, and `explicit_config` is one more layer, not a
+    replacement for the rest.
+
+    `pyproject.toml` and `.envstencil.toml` are each searched from `cwd`
+    upward to the filesystem root, independently — the two may resolve to
+    different directories — and only the occurrence nearest `cwd` is used
+    for each. The `--config` file and the XDG user config are not part of
+    this upward search.
 
     An absent auto-discovered source contributes an empty config; a source
     that exists but is invalid raises. `explicit_config` additionally raises

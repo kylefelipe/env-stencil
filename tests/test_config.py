@@ -11,6 +11,7 @@ from envstencil.config import (
     GlobalConfig,
     ResolvedCheckConfig,
     ResolvedGenerateConfig,
+    _find_upwards,
     default_config,
     get_user_config_path,
     load_config,
@@ -914,3 +915,166 @@ def test_resolve_generate_from_defaults_is_complete() -> None:
     assert resolved == ResolvedGenerateConfig(
         file1=Path(".env"), file2=Path(".env.example"), force=False
     )
+
+
+# --- _find_upwards (milestone 5) ------------------------------
+
+
+def _mkdirs(base: Path, *parts: str) -> Path:
+    """Create `base/parts...` and return the deepest directory."""
+    path = base.joinpath(*parts)
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def test_find_upwards_file_in_cwd(tmp_path: Path) -> None:
+    project = _mkdirs(tmp_path, "project")
+    target = _write(project / ".envstencil.toml", "")
+
+    assert _find_upwards(".envstencil.toml", project) == target
+
+
+def test_find_upwards_file_in_parent(tmp_path: Path) -> None:
+    project = _mkdirs(tmp_path, "project")
+    src = _mkdirs(project, "src")
+    target = _write(project / ".envstencil.toml", "")
+
+    assert _find_upwards(".envstencil.toml", src) == target
+
+
+def test_find_upwards_file_in_distant_ancestor(tmp_path: Path) -> None:
+    project = _mkdirs(tmp_path, "project")
+    module = _mkdirs(project, "src", "package", "module")
+    target = _write(project / "pyproject.toml", "")
+
+    assert _find_upwards("pyproject.toml", module) == target
+
+
+def test_find_upwards_returns_none_when_absent(tmp_path: Path) -> None:
+    start = _mkdirs(tmp_path, "a", "b", "c")
+
+    assert _find_upwards(".envstencil.toml", start) is None
+
+
+def test_find_upwards_uses_closest_occurrence(tmp_path: Path) -> None:
+    project = _mkdirs(tmp_path, "project")
+    app = _mkdirs(project, "app")
+    src = _mkdirs(app, "src")
+    _write(project / ".envstencil.toml", "")
+    closest = _write(app / ".envstencil.toml", "")
+
+    assert _find_upwards(".envstencil.toml", src) == closest
+
+
+def test_find_upwards_stops_at_root_without_looping(tmp_path: Path) -> None:
+    # A name that never exists must terminate at the filesystem root.
+    assert _find_upwards("definitely-not-here.toml", tmp_path) is None
+
+
+def test_find_upwards_stops_at_existing_directory_candidate(
+    tmp_path: Path,
+) -> None:
+    project = _mkdirs(tmp_path, "project")
+    src = _mkdirs(project, "src")
+    # closest ".envstencil.toml" is a directory; an ancestor has a real file
+    _mkdirs(src, ".envstencil.toml")
+    _write(project / ".envstencil.toml", "")
+
+    found = _find_upwards(".envstencil.toml", src)
+
+    assert found == src / ".envstencil.toml"
+    assert found.is_dir()
+
+
+# --- independent upward discovery (milestone 5) --------------
+
+
+def test_pyproject_and_project_config_discovered_independently(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    workspace = _mkdirs(tmp_path, "workspace")
+    project = _mkdirs(workspace, "project")
+    src = _mkdirs(project, "src")
+    _write(
+        workspace / "pyproject.toml",
+        "[tool.envstencil.global]\nfile1 = '.env.pp'\n",
+    )
+    _write(project / ".envstencil.toml", "[global]\nfile2 = '.env.proj'\n")
+
+    pp = load_pyproject_config(src)
+    proj = load_project_config(src)
+
+    assert pp.global_.file1 == Path(".env.pp")
+    assert proj.global_.file2 == Path(".env.proj")
+
+
+def test_load_pyproject_finds_ancestor(tmp_path: Path) -> None:
+    project = _mkdirs(tmp_path, "project")
+    deep = _mkdirs(project, "a", "b")
+    _write(
+        project / "pyproject.toml",
+        "[tool.envstencil.check]\ndiff = true\n",
+    )
+
+    assert load_pyproject_config(deep).check.diff is True
+
+
+def test_load_project_config_finds_ancestor(tmp_path: Path) -> None:
+    project = _mkdirs(tmp_path, "project")
+    deep = _mkdirs(project, "a", "b")
+    _write(project / ".envstencil.toml", "[check]\ndiff = true\n")
+
+    assert load_project_config(deep).check.diff is True
+
+
+def test_load_project_config_uses_closest_ancestor(tmp_path: Path) -> None:
+    project = _mkdirs(tmp_path, "project")
+    app = _mkdirs(project, "app")
+    src = _mkdirs(app, "src")
+    _write(project / ".envstencil.toml", "[check]\ndiff = true\n")
+    _write(app / ".envstencil.toml", "[check]\ndiff = false\n")
+
+    assert load_project_config(src).check.diff is False
+
+
+def test_load_pyproject_ancestor_directory_propagates_error(
+    tmp_path: Path,
+) -> None:
+    project = _mkdirs(tmp_path, "project")
+    deep = _mkdirs(project, "a", "b")
+    _mkdirs(project, "pyproject.toml")
+
+    with pytest.raises((IsADirectoryError, PermissionError)):
+        load_pyproject_config(deep)
+
+
+# --- precedence with upward discovery (milestone 5) ----------
+
+
+def test_load_config_project_beats_pyproject_across_directories(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    workspace = _mkdirs(tmp_path, "workspace")
+    project = _mkdirs(workspace, "project")
+    src = _mkdirs(project, "src")
+    _write(
+        workspace / "pyproject.toml",
+        "[tool.envstencil.check]\ndiff = true\n",
+    )
+    _write(project / ".envstencil.toml", "[check]\ndiff = false\n")
+
+    assert load_config(cwd=src).check.diff is False
+
+
+def test_load_config_from_subdir_equals_from_project_root(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    project = _mkdirs(tmp_path, "project")
+    deep = _mkdirs(project, "src", "app")
+    _write(project / "pyproject.toml", "[tool.envstencil.global]\nfile1='x'\n")
+    _write(project / ".envstencil.toml", "[check]\ndiff = true\n")
+
+    assert load_config(cwd=deep) == load_config(cwd=project)

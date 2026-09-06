@@ -12,10 +12,17 @@ e este projeto segue o [Semantic Versioning](https://semver.org/lang/pt-BR/).
 - Sistema de configuração por arquivo TOML. `envstencil` lê, da menor para a
   maior precedência: defaults internos, config global do usuário
   (`$XDG_CONFIG_HOME/envstencil/config.toml`), `[tool.envstencil]` do
-  `pyproject.toml`, `.envstencil.toml` no diretório atual e o arquivo passado
-  em `--config`; os argumentos e flags da linha de comando sempre vencem. As
-  seções `[global]`, `[generate]` e `[check]` definem `file1` / `file2` (origem
-  e destino/segundo arquivo) e, respectivamente, `force` e `diff`.
+  `pyproject.toml`, `.envstencil.toml` e o arquivo passado em `--config`; os
+  argumentos e flags da linha de comando sempre vencem. As seções `[global]`,
+  `[generate]` e `[check]` definem `file1` / `file2` (origem e destino/segundo
+  arquivo) e, respectivamente, `force` e `diff`.
+- `pyproject.toml` e `.envstencil.toml` são procurados a partir do diretório
+  atual e depois nos diretórios pais até a raiz do sistema de arquivos, então
+  o `envstencil` roda de dentro de um subdiretório do projeto e ainda encontra
+  a configuração na raiz dele. Cada um dos dois é descoberto de forma
+  independente (podem vir de diretórios diferentes) e só a ocorrência mais
+  próxima de cada nome é usada — arquivos ancestrais não são empilhados. O
+  arquivo de `--config` e a config global não participam dessa busca.
 - Opção global `--config CAMINHO` para apontar um arquivo de configuração TOML
   explícito (maior precedência entre os arquivos).
 - Flags `--no-force` (em `generate`) e `--no-diff` / `--no-dif` (em `check`)

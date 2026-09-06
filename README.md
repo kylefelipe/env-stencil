@@ -80,8 +80,14 @@ Origem, destino e os padrões de `--force` / `--diff` podem vir de um arquivo
 TOML, então não é preciso repetir as flags a cada uso. As fontes, da menor
 para a maior precedência: defaults internos → config global do usuário
 (`~/.config/envstencil/config.toml`) → `[tool.envstencil]` do `pyproject.toml`
-→ `.envstencil.toml` no diretório atual → arquivo de `--config` → argumentos e
-flags da linha de comando (que sempre vencem).
+→ `.envstencil.toml` → arquivo de `--config` → argumentos e flags da linha de
+comando (que sempre vencem).
+
+O `pyproject.toml` e o `.envstencil.toml` são procurados a partir do diretório
+atual e depois nos diretórios pais até a raiz, de forma independente — rodar o
+`envstencil` num subdiretório do projeto ainda encontra os arquivos da raiz.
+Só a ocorrência mais próxima de cada nome é usada; arquivos ancestrais não são
+empilhados.
 
 ```toml
 # .envstencil.toml

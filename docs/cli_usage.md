@@ -305,14 +305,55 @@ projeto não precisa repetir as flags.
 1. **Defaults internos** — `.env` / `.env.example`, sem `--force`, sem `--diff`.
 2. **Config global do usuário** — `$XDG_CONFIG_HOME/envstencil/config.toml`
    (ou `~/.config/envstencil/config.toml`).
-3. **`pyproject.toml`** do diretório atual — seção `[tool.envstencil]`.
-4. **`.envstencil.toml`** no diretório atual (sem busca em diretórios pais).
+3. **`pyproject.toml`** — seção `[tool.envstencil]`.
+4. **`.envstencil.toml`**.
 5. **Arquivo de `--config`**, quando informado.
 6. **Argumentos e flags da linha de comando** — sempre vencem.
 
 Cada camada sobrescreve a anterior campo a campo: definir só `[check] diff`
 num arquivo não apaga o `file1` herdado de outra camada. `false` é um valor
 explícito e vence `true` de uma camada inferior.
+
+### Onde o `pyproject.toml` e o `.envstencil.toml` são procurados
+
+Os dois são procurados **a partir do diretório atual e depois nos diretórios
+pais**, até a raiz do sistema de arquivos. Assim o `envstencil` roda de dentro
+de um subdiretório do projeto e ainda encontra a configuração na raiz dele:
+
+```text
+projeto/
+├── pyproject.toml
+├── .envstencil.toml
+└── src/
+    └── app/         ← `envstencil` rodando aqui usa os arquivos da raiz
+```
+
+Detalhes da busca:
+
+- **Cada nome é procurado de forma independente** — o `pyproject.toml` e o
+  `.envstencil.toml` podem ser encontrados em diretórios diferentes.
+- **Só a ocorrência mais próxima de cada nome é usada.** Vários
+  `.envstencil.toml` em diretórios ancestrais **não** são empilhados; o mais
+  próximo do diretório atual vence e os demais são ignorados. O mesmo vale
+  para o `pyproject.toml`.
+- A busca não usa `.git` nem qualquer outra marca de "raiz de projeto" como
+  limite — sobe até a raiz do filesystem.
+- O arquivo de `--config` e a config global do usuário **não** participam
+  dessa busca: `--config` é usado exatamente como informado e a config global
+  vem só do caminho XDG.
+
+Exemplo com os dois arquivos em diretórios diferentes:
+
+```text
+workspace/
+├── pyproject.toml
+└── projeto/
+    ├── .envstencil.toml
+    └── src/            ← rodando aqui
+```
+
+Rodando em `workspace/projeto/src`, o `envstencil` usa
+`workspace/pyproject.toml` e `workspace/projeto/.envstencil.toml`.
 
 ### Seções e chaves
 

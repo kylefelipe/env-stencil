@@ -867,3 +867,74 @@ def test_full_precedence_cli_beats_every_config_layer_generate(
 
     assert result.exit_code != 0
     assert Path(".env.example").read_text(encoding="utf-8") == "velho\n"
+
+
+# --- config discovery from a subdirectory (milestone 5) ------
+
+
+def test_check_finds_ancestor_envstencil_toml_from_subdir(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    project = tmp_path / "project"
+    workdir = project / "src" / "package"
+    workdir.mkdir(parents=True)
+    (project / ".envstencil.toml").write_text(
+        "[check]\ndiff = true\n", encoding="utf-8"
+    )
+    # relative paths still resolve from the execution dir
+    (workdir / ".env").write_text("A=1\nB=2\n", encoding="utf-8")
+    (workdir / ".env.example").write_text("A=x\n", encoding="utf-8")
+    monkeypatch.chdir(workdir)
+
+    result = CliRunner().invoke(main, ["check"])
+
+    assert result.exit_code == 1
+    assert "  - B" in result.output  # [check] diff = true was picked up
+
+
+def test_generate_finds_ancestor_pyproject_from_subdir(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    project = tmp_path / "project"
+    workdir = project / "src" / "package"
+    workdir.mkdir(parents=True)
+    (project / "pyproject.toml").write_text(
+        "[tool.envstencil.generate]\nforce = true\n", encoding="utf-8"
+    )
+    (workdir / ".env").write_text("A=secret\n", encoding="utf-8")
+    (workdir / ".env.example").write_text("velho\n", encoding="utf-8")
+    monkeypatch.chdir(workdir)
+
+    result = CliRunner().invoke(main, ["generate"])
+
+    assert result.exit_code == 0
+    assert (workdir / ".env.example").read_text(
+        encoding="utf-8"
+    ) == "A=your_value_here\n"
+
+
+def test_cli_closest_envstencil_toml_wins_over_farther_one(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    project = tmp_path / "project"
+    app = project / "app"
+    workdir = app / "src"
+    workdir.mkdir(parents=True)
+    (project / ".envstencil.toml").write_text(
+        "[check]\ndiff = true\n", encoding="utf-8"
+    )
+    (app / ".envstencil.toml").write_text(
+        "[check]\ndiff = false\n", encoding="utf-8"
+    )
+    (workdir / ".env").write_text("A=1\nB=2\n", encoding="utf-8")
+    (workdir / ".env.example").write_text("A=x\n", encoding="utf-8")
+    monkeypatch.chdir(workdir)
+
+    result = CliRunner().invoke(main, ["check"])
+
+    assert result.exit_code == 1
+    assert "  - B" not in result.output  # closest file: diff = false
+    assert "Use --diff" in result.output
