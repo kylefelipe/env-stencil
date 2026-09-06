@@ -7,6 +7,20 @@ e este projeto segue o [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+### Added
+
+- Sistema de configuração por arquivo TOML. `envstencil` lê, da menor para a
+  maior precedência: defaults internos, config global do usuário
+  (`$XDG_CONFIG_HOME/envstencil/config.toml`), `[tool.envstencil]` do
+  `pyproject.toml`, `.envstencil.toml` no diretório atual e o arquivo passado
+  em `--config`; os argumentos e flags da linha de comando sempre vencem. As
+  seções `[global]`, `[generate]` e `[check]` definem `file1` / `file2` (origem
+  e destino/segundo arquivo) e, respectivamente, `force` e `diff`.
+- Opção global `--config CAMINHO` para apontar um arquivo de configuração TOML
+  explícito (maior precedência entre os arquivos).
+- Flags `--no-force` (em `generate`) e `--no-diff` / `--no-dif` (em `check`)
+  para desligar explicitamente o comportamento vindo da configuração.
+
 ### Changed
 
 - `envstencil check` agora aceita dois arquivos posicionais diretamente
@@ -14,6 +28,11 @@ e este projeto segue o [Semantic Versioning](https://semver.org/lang/pt-BR/).
   dotenv. Sem argumento continua sendo `.env` × `.env.example`; com um
   argumento, `FILE1` × `FILE1.example`. A opção `--example` (`-e`) segue
   funcionando como forma alternativa e não pode ser combinada com `FILE2`.
+- `generate` e `check` passam a usar os valores da configuração como padrão de
+  origem/destino, de `--force` e de `--diff` quando os respectivos argumentos
+  ou flags não são informados. Sem nenhum arquivo de configuração, o
+  comportamento é o mesmo de antes (`.env` / `.env.example`, sem `--force`, sem
+  `--diff`).
 
 ## [0.3.0] - 2026-09-01
 

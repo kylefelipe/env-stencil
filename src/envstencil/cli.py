@@ -6,7 +6,13 @@ from pathlib import Path
 
 import click
 
-from .config import ConfigError, load_config
+from .config import (
+    ConfigError,
+    EnvStencilConfig,
+    load_config,
+    resolve_check_config,
+    resolve_generate_config,
+)
 from .core import (
     DEFAULT_PLACEHOLDER,
     AppendResult,
@@ -35,11 +41,13 @@ class _InputError(click.ClickException):
 )
 @click.pass_context
 def main(ctx: click.Context, config_path: Path | None) -> None:
-    """envstencil — gera um .env.example seguro a partir do seu .env."""
-    # Effective configuration is built once here and stashed on the context.
-    # The subcommands do not act on it yet (that is the next milestone) —
-    # this only makes the option available and surfaces config errors early
-    # and without a traceback.
+    """envstencil — gera um .env.example seguro a partir do seu .env.
+
+    Fontes de configuração, da menor para a maior precedência: defaults
+    internos, config global do usuário, `[tool.envstencil]` do
+    `pyproject.toml`, `.envstencil.toml`, o arquivo de `--config`, e por
+    último os argumentos/flags passados na linha de comando.
+    """
     try:
         config = load_config(cwd=Path.cwd(), explicit_config=config_path)
     except ConfigError as exc:
@@ -49,6 +57,9 @@ def main(ctx: click.Context, config_path: Path | None) -> None:
             f"Não foi possível ler a configuração: {exc}"
         ) from exc
     ctx.obj = {"config": config}
+
+
+# --- generate --------------------------------------------------------
 
 
 def _report_append(result: AppendResult, source: Path) -> None:
@@ -71,11 +82,37 @@ def _report_append(result: AppendResult, source: Path) -> None:
         click.echo(f"  + {key}")
 
 
+def _resolve_generate_inputs(
+    config: EnvStencilConfig,
+    source: Path | None,
+    destination: Path | None,
+    force: bool | None,
+) -> tuple[Path, Path, bool]:
+    """Layer explicit CLI values over the resolved `[generate]`/`[global]`.
+
+    Rules: an explicit `source` wins over config; an explicit `-o/--output`
+    wins over everything, otherwise an explicit `source` derives
+    `<source>.example` (config's second file is *not* mixed in), and only a
+    fully omitted pair falls back to the configured files. `--force` /
+    `--no-force` win over `config`; `None` (neither given) uses the config.
+    """
+    resolved = resolve_generate_config(config)
+    src = source if source is not None else resolved.file1
+    if destination is not None:
+        out = destination
+    elif source is not None:
+        out = source.parent / f"{source.name}.example"
+    else:
+        out = resolved.file2
+    effective_force = force if force is not None else resolved.force
+    return src, out, effective_force
+
+
 @main.command()
 @click.argument(
     "source",
-    type=click.Path(exists=True, dir_okay=False, path_type=Path),
-    default=".env",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
     required=False,
 )
 @click.option(
@@ -84,7 +121,7 @@ def _report_append(result: AppendResult, source: Path) -> None:
     "destination",
     type=click.Path(dir_okay=False, path_type=Path),
     default=None,
-    help="Arquivo de saída (padrão: origem + '.example', no mesmo diretório).",
+    help="Arquivo de saída (padrão: SOURCE + '.example', ou o da configuração).",
 )
 @click.option(
     "-p",
@@ -95,10 +132,10 @@ def _report_append(result: AppendResult, source: Path) -> None:
 )
 @click.option(
     "-f",
-    "--force",
-    is_flag=True,
-    default=False,
-    help="Regenera e sobrescreve o .env.example por completo.",
+    "--force/--no-force",
+    "force",
+    default=None,
+    help="Regenera e sobrescreve tudo (--no-force desativa; padrão: config).",
 )
 @click.option(
     "-a",
@@ -115,53 +152,67 @@ def _report_append(result: AppendResult, source: Path) -> None:
     default=False,
     help="Colapsa linhas em branco consecutivas em uma só.",
 )
+@click.pass_context
 def generate(
-    source: Path,
+    ctx: click.Context,
+    source: Path | None,
     destination: Path | None,
     placeholder: str,
-    force: bool,
+    force: bool | None,
     append: bool,
     collapse_blank_lines: bool,
 ) -> None:
-    """Gera um .env.example a partir de SOURCE (padrão: .env).
+    """Gera um .env.example a partir de SOURCE.
 
+    SOURCE e o destino, quando omitidos, vêm da configuração
+    (`[global]` / `[generate]`; padrão `.env` e `.env.example`).
+
+    \b
     Sem flags: cria o arquivo apenas se ele ainda não existir (aborta se
-    existir). --force regenera e sobrescreve tudo. --append preserva o
-    arquivo e acrescenta só as variáveis que faltam.
+        existir). --force / --no-force regeneram/sobrescrevem ou não; sem
+        nenhum dos dois, usa o valor configurado. --append preserva o
+        arquivo e acrescenta só as variáveis que faltam.
     """
-    if append and force:
+    if append and force is True:
         raise click.UsageError(
             "--append e --force não podem ser usados juntos."
         )
 
-    if destination is None:
-        destination = source.parent / f"{source.name}.example"
+    try:
+        src, out, effective_force = _resolve_generate_inputs(
+            ctx.obj["config"], source, destination, force
+        )
+    except ConfigError as exc:
+        raise _InputError(str(exc)) from exc
 
     try:
         if append:
             _report_append(
                 append_missing_variables(
-                    source=source,
-                    destination=destination,
+                    source=src,
+                    destination=out,
                     placeholder=placeholder,
                 ),
-                source,
+                src,
             )
         else:
             result = generate_example(
-                source=source,
-                destination=destination,
+                source=src,
+                destination=out,
                 placeholder=placeholder,
-                force=force,
+                force=effective_force,
                 collapse_blank_lines=collapse_blank_lines,
             )
-            click.echo(f"✅ {result} gerado a partir de {source}")
+            click.echo(f"✅ {result} gerado a partir de {src}")
     except EnvParseError as exc:
         raise click.ClickException(str(exc)) from exc
     except FileExistsError as exc:
         raise click.ClickException(str(exc)) from exc
     except FileNotFoundError as exc:
         raise click.ClickException(str(exc)) from exc
+
+
+# --- check ----------------------------------------------------------
 
 
 def _plural_ausente(n: int) -> str:
@@ -201,11 +252,41 @@ def _report_check(
     click.echo("Use --diff para ver os detalhes.")
 
 
+def _resolve_check_inputs(
+    config: EnvStencilConfig,
+    file1: Path | None,
+    file2: Path | None,
+    example: Path | None,
+    diff: bool | None,
+) -> tuple[Path, Path, bool]:
+    """Layer explicit CLI values over the resolved `[check]`/`[global]`.
+
+    File precedence: explicit `FILE1`/`FILE2` > explicit `--example` >
+    configured files. A lone explicit `FILE1` derives `FILE1.example` (the
+    configured second file is *not* mixed in). `--diff` / `--no-diff` win
+    over `config`; `None` (neither given) uses `config.check.diff`.
+    """
+    resolved = resolve_check_config(config)
+
+    first = file1 if file1 is not None else resolved.file1
+    if file2 is not None:
+        second = file2
+    elif example is not None:
+        second = example
+    elif file1 is not None:
+        second = file1.parent / f"{file1.name}.example"
+    else:
+        second = resolved.file2
+
+    effective_diff = diff if diff is not None else resolved.diff
+    return first, second, effective_diff
+
+
 @main.command()
 @click.argument(
     "file1",
     type=click.Path(dir_okay=False, path_type=Path),
-    default=".env",
+    default=None,
     required=False,
 )
 @click.argument(
@@ -223,20 +304,19 @@ def _report_check(
     help="Forma alternativa de informar o segundo arquivo (compatibilidade).",
 )
 @click.option(
-    "--diff",
-    "--dif",
-    "show_diff",
-    is_flag=True,
-    default=False,
-    help="Lista as variáveis divergentes em cada arquivo.",
+    "--diff/--no-diff",
+    "--dif/--no-dif",
+    "diff",
+    default=None,
+    help="Lista as variáveis divergentes (--no-diff só o resumo; padrão: config).",
 )
 @click.pass_context
 def check(
     ctx: click.Context,
-    file1: Path,
+    file1: Path | None,
     file2: Path | None,
     example: Path | None,
-    show_diff: bool,
+    diff: bool | None,
 ) -> None:
     """Compara as variáveis declaradas em dois arquivos dotenv.
 
@@ -244,12 +324,14 @@ def check(
     exibidos. Não modifica nenhum arquivo.
 
     \b
-    Sem argumentos:      .env e .env.example
+    Sem argumentos:      arquivos da configuração (padrão .env / .env.example)
     Com um argumento:    FILE1 e FILE1 + ".example"
     Com dois argumentos: exatamente FILE1 e FILE2
 
     `--example` (`-e`) é uma forma alternativa/compatível de informar o
-    segundo arquivo; não pode ser combinada com FILE2.
+    segundo arquivo; não pode ser combinada com FILE2. `--diff` /
+    `--no-diff` vencem a configuração; sem nenhum dos dois, usa
+    `[check].diff`.
 
     Exit codes: 0 sincronizados, 1 divergências, 2 erro de leitura/parsing.
     """
@@ -258,22 +340,25 @@ def check(
             "não é possível informar FILE2 e --example ao mesmo tempo."
         )
 
-    second = file2 if file2 is not None else example
-    if second is None:
-        second = file1.parent / f"{file1.name}.example"
+    try:
+        first, second, effective_diff = _resolve_check_inputs(
+            ctx.obj["config"], file1, file2, example, diff
+        )
+    except ConfigError as exc:
+        raise _InputError(str(exc)) from exc
 
     try:
-        result = compare_env_files(file1, second)
+        result = compare_env_files(first, second)
     except EnvParseError as exc:
         raise _InputError(str(exc)) from exc
     except FileNotFoundError as exc:
         raise _InputError(str(exc)) from exc
 
     if result.is_synced:
-        click.echo(f"✓ {file1} e {second} estão sincronizados.")
+        click.echo(f"✓ {first} e {second} estão sincronizados.")
         return
 
-    _report_check(result, file1, second, show_diff)
+    _report_check(result, first, second, effective_diff)
     ctx.exit(1)
 
 

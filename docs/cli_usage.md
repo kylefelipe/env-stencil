@@ -1,8 +1,11 @@
 # Modo de uso (CLI)
 
-O `envstencil` expõe um único comando, `generate`, que lê um arquivo `.env` e
-escreve um `.env.example` seguro: todos os valores viram um placeholder,
-enquanto comentários, linhas em branco e a ordem das chaves são preservados.
+O `envstencil` tem dois comandos: `generate`, que lê um arquivo `.env` e
+escreve um `.env.example` seguro (todos os valores viram um placeholder,
+enquanto comentários, linhas em branco e a ordem das chaves são preservados),
+e `check`, que só compara os nomes das variáveis de dois arquivos dotenv.
+Origem, destino e o padrão de algumas flags podem vir de um arquivo de
+configuração (ver a seção **Configuração**).
 
 ## Instalação
 
@@ -117,7 +120,9 @@ de ser copiada para o `.env.example`.
 ```
 
 Sem `-o`, o destino é `<origem>.example` no mesmo diretório
-(`.env` → `.env.example`).
+(`.env` → `.env.example`). Quando **nem** a origem **nem** o `-o` são
+informados, os dois vêm da configuração (ver **Configuração**, abaixo; padrão
+`.env` e `.env.example`).
 
 ## Placeholder customizado
 
@@ -133,7 +138,11 @@ Há três modos, todos pelo mesmo comando:
 | ------- | ------------- |
 | `{{ commands.run }} generate` | cria o arquivo **só se ele ainda não existir**; se existir, aborta sem tocar em nada |
 | `{{ commands.run }} generate --force` | **regenera e sobrescreve** o `.env.example` por completo |
+| `{{ commands.run }} generate --no-force` | força o comportamento sem `--force`, mesmo que a configuração traga `force = true` |
 | `{{ commands.run }} generate --append` | **preserva** o `.env.example` e acrescenta ao final só as chaves do `.env` que ainda faltam |
+
+Sem `--force` nem `--no-force`, vale o `force` da configuração (padrão:
+desligado — ver **Configuração**).
 
 Sem flags, num arquivo que já existe:
 
@@ -213,14 +222,17 @@ altera nem corrige nenhum arquivo — e nunca lê nem imprime valores.
 {{ commands.run }} check FILE1 FILE2 --diff # o mesmo, listando as divergências
 ```
 
-- **Sem argumento:** `.env` e `.env.example` no diretório atual.
+- **Sem argumento:** os dois arquivos vêm da configuração (padrão `.env` e
+  `.env.example` no diretório atual — ver **Configuração**).
 - **Um argumento:** o segundo arquivo é o primeiro + `.example` (mesma
-  convenção do `generate`).
-- **Dois argumentos:** compara exatamente esses dois — nenhuma convenção é
-  aplicada.
+  convenção do `generate`); o `file2` da configuração **não** é usado.
+- **Dois argumentos:** compara exatamente esses dois — nenhuma convenção nem
+  valor de configuração é aplicado.
 
 Compatibilidade: `{{ commands.run }} check FILE1 --example FILE2` (`-e`)
-continua funcionando. Não combine `--example` com o segundo posicional.
+continua funcionando. Não combine `--example` com o segundo posicional. A
+precedência do segundo arquivo é: `FILE2` explícito > `--example` > `file2` da
+configuração.
 
 ### Caso típico: equipe
 
@@ -255,7 +267,8 @@ Use --diff para ver os detalhes.
 
 `--diff` (alias: `--dif`) lista os nomes — `+` para o que o `.env.example`
 espera e falta no `.env`, `-` para o que existe no `.env` e não está
-documentado:
+documentado. `--no-diff` (`--no-dif`) força só o resumo. Sem nenhum dos dois,
+vale o `diff` da configuração (padrão: só o resumo — ver **Configuração**):
 
 ```console
 $ {{ commands.run }} check --diff
@@ -280,6 +293,117 @@ faz isso sozinho.
 | `0` | os dois arquivos declaram o mesmo conjunto de variáveis |
 | `1` | há divergências |
 | `2` | erro de leitura/parsing (arquivo ausente, linha não reconhecida, aspa não fechada) |
+
+## Configuração
+
+Os padrões de origem/destino, de `--force` e de `--diff` podem vir de um
+arquivo de configuração TOML, então quem usa o `envstencil` sempre no mesmo
+projeto não precisa repetir as flags.
+
+### Fontes, da menor para a maior precedência
+
+1. **Defaults internos** — `.env` / `.env.example`, sem `--force`, sem `--diff`.
+2. **Config global do usuário** — `$XDG_CONFIG_HOME/envstencil/config.toml`
+   (ou `~/.config/envstencil/config.toml`).
+3. **`pyproject.toml`** do diretório atual — seção `[tool.envstencil]`.
+4. **`.envstencil.toml`** no diretório atual (sem busca em diretórios pais).
+5. **Arquivo de `--config`**, quando informado.
+6. **Argumentos e flags da linha de comando** — sempre vencem.
+
+Cada camada sobrescreve a anterior campo a campo: definir só `[check] diff`
+num arquivo não apaga o `file1` herdado de outra camada. `false` é um valor
+explícito e vence `true` de uma camada inferior.
+
+### Seções e chaves
+
+```toml
+# .envstencil.toml (ou config.toml do usuário)
+
+[global]           # padrões compartilhados pelos dois comandos
+file1 = ".env"             # origem / primeiro arquivo
+file2 = ".env.example"     # destino / segundo arquivo
+
+[generate]         # sobrescreve [global] só para o generate
+file1 = ".env"
+file2 = ".env.example"
+force = false
+
+[check]            # sobrescreve [global] só para o check
+file1 = ".env"
+file2 = ".env.example"
+diff = false
+```
+
+Todas as chaves são opcionais. `[generate]` / `[check]` só precisam do que
+diferem de `[global]`.
+
+No `pyproject.toml` as mesmas seções ficam sob `tool.envstencil`:
+
+```toml
+[tool.envstencil.global]
+file1 = ".env"
+file2 = ".env.example"
+
+[tool.envstencil.check]
+diff = true
+
+[tool.envstencil.generate]
+force = true
+```
+
+### `--config`
+
+```bash
+{{ commands.run }} --config config/ci.toml check
+```
+
+O arquivo de `--config` é só mais uma camada (a de maior precedência entre os
+arquivos), não substitui as demais. Ao contrário das fontes autodescobertas,
+um caminho de `--config` que não existe é um erro.
+
+### Exemplos
+
+`.envstencil.toml` de um projeto cujo dotenv se chama `.env.local`:
+
+```toml
+[global]
+file1 = ".env.local"
+file2 = ".env.local.example"
+
+[check]
+diff = true
+```
+
+```console
+$ {{ commands.run }} check
+⚠ Foram encontradas diferenças entre .env.local e .env.local.example.
+
+Ausentes no .env.local:
+  + NEW_API_KEY
+```
+
+```console
+$ {{ commands.run }} check --no-diff   # a flag vence o [check] diff = true
+⚠ Foram encontradas diferenças entre .env.local e .env.local.example.
+
+1 variável ausente no .env.local.
+
+Use --diff para ver os detalhes.
+```
+
+`pyproject.toml` que sempre regenera o exemplo:
+
+```toml
+[tool.envstencil.generate]
+force = true
+```
+
+```console
+$ {{ commands.run }} generate            # sobrescreve sem pedir --force
+✅ .env.example gerado a partir de .env
+$ {{ commands.run }} generate --no-force # ignora o force da configuração
+Error: .env.example já existe. Use --force para sobrescrever ou --append para adicionar apenas as novas variáveis.
+```
 
 ## Limpando linhas em branco
 

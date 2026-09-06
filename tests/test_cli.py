@@ -357,7 +357,7 @@ def test_check_does_not_create_or_touch_files(
     assert sorted(p.name for p in tmp_path.iterdir()) == before
 
 
-# --- --config global option (milestone 3) --------------------
+# --- --config global option --------------------
 
 
 def test_config_option_accepted_with_help(tmp_path: Path, monkeypatch) -> None:
@@ -399,17 +399,471 @@ def test_config_invalid_toml_fails_without_traceback(
     assert "Invalid TOML configuration" in result.output
 
 
-def test_config_valid_does_not_change_check_behaviour(
+def test_config_valid_changes_check_behaviour(
     tmp_path: Path, monkeypatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
     Path(".env").write_text("A=1\nB=2\n", encoding="utf-8")
     Path(".env.example").write_text("A=x\n", encoding="utf-8")
-    # config says diff=true, but the command must ignore it in this milestone
     Path("cfg.toml").write_text("[check]\ndiff = true\n", encoding="utf-8")
 
     without = CliRunner().invoke(main, ["check"])
     with_config = CliRunner().invoke(main, ["--config", "cfg.toml", "check"])
 
-    assert with_config.exit_code == without.exit_code == 1
-    assert with_config.output == without.output
+    assert without.exit_code == with_config.exit_code == 1
+    assert "Use --diff" in without.output  # no config -> summary only
+    assert "  - B" in with_config.output  # config diff=true -> listed
+
+
+# --- check + config integration (milestone 4) -----------------
+
+
+def _files(
+    tmp_path: Path,
+    a_content: str,
+    b_content: str,
+    a: str = ".env",
+    b: str = ".env.example",
+) -> None:
+    (tmp_path / a).write_text(a_content, encoding="utf-8")
+    (tmp_path / b).write_text(b_content, encoding="utf-8")
+
+
+def test_check_zero_positionals_use_config_files(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    _files(tmp_path, "A=1\n", "A=x\n", a=".env.local", b=".env.local.example")
+    Path(".envstencil.toml").write_text(
+        '[global]\nfile1 = ".env.local"\nfile2 = ".env.local.example"\n',
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(main, ["check"])
+
+    assert result.exit_code == 0
+    assert (
+        ".env.local e .env.local.example estão sincronizados" in result.output
+    )
+
+
+def test_check_one_positional_ignores_config_file2(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    Path("custom.env").write_text("A=1\n", encoding="utf-8")
+    Path("custom.env.example").write_text("A=x\n", encoding="utf-8")
+    Path(".env.example").write_text("SHOULD=not-be-used\n", encoding="utf-8")
+    Path(".envstencil.toml").write_text(
+        '[global]\nfile2 = ".env.example"\n', encoding="utf-8"
+    )
+
+    result = CliRunner().invoke(main, ["check", "custom.env"])
+
+    assert result.exit_code == 0
+    assert "custom.env e custom.env.example" in result.output
+
+
+def test_check_two_positionals_beat_config(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    Path("a.env").write_text("A=1\n", encoding="utf-8")
+    Path("b.env").write_text("A=x\n", encoding="utf-8")
+    Path(".envstencil.toml").write_text(
+        '[global]\nfile1 = ".env"\nfile2 = ".env.example"\n', encoding="utf-8"
+    )
+
+    result = CliRunner().invoke(main, ["check", "a.env", "b.env"])
+
+    assert result.exit_code == 0
+    assert "a.env e b.env estão sincronizados" in result.output
+
+
+def test_check_example_beats_config_file2(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    Path(".env").write_text("A=1\n", encoding="utf-8")
+    Path("real.example").write_text("A=x\n", encoding="utf-8")
+    Path(".envstencil.toml").write_text(
+        '[global]\nfile2 = ".env.example"\n', encoding="utf-8"
+    )
+
+    result = CliRunner().invoke(main, ["check", "--example", "real.example"])
+
+    assert result.exit_code == 0
+    assert ".env e real.example estão sincronizados" in result.output
+
+
+def test_check_file2_and_example_conflict_still_errors(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    for name in ("a.env", "b.env", "c.env"):
+        Path(name).write_text("A=1\n", encoding="utf-8")
+
+    result = CliRunner().invoke(
+        main, ["check", "a.env", "b.env", "--example", "c.env"]
+    )
+
+    assert result.exit_code == 2
+    assert "FILE2" in result.output
+
+
+def test_check_config_diff_true_is_applied(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    _files(tmp_path, "A=1\nB=2\n", "A=x\n")
+    Path(".envstencil.toml").write_text(
+        "[check]\ndiff = true\n", encoding="utf-8"
+    )
+
+    result = CliRunner().invoke(main, ["check"])
+
+    assert result.exit_code == 1
+    assert "  - B" in result.output
+
+
+def test_check_config_diff_false_is_applied(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    _files(tmp_path, "A=1\nB=2\n", "A=x\n")
+    Path(".envstencil.toml").write_text(
+        "[check]\ndiff = false\n", encoding="utf-8"
+    )
+
+    result = CliRunner().invoke(main, ["check"])
+
+    assert result.exit_code == 1
+    assert "Use --diff" in result.output
+    assert "  - B" not in result.output
+
+
+def test_check_cli_diff_beats_config_false(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    _files(tmp_path, "A=1\nB=2\n", "A=x\n")
+    Path(".envstencil.toml").write_text(
+        "[check]\ndiff = false\n", encoding="utf-8"
+    )
+
+    result = CliRunner().invoke(main, ["check", "--diff"])
+
+    assert result.exit_code == 1
+    assert "  - B" in result.output
+
+
+def test_check_cli_no_diff_beats_config_true(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    _files(tmp_path, "A=1\nB=2\n", "A=x\n")
+    Path(".envstencil.toml").write_text(
+        "[check]\ndiff = true\n", encoding="utf-8"
+    )
+
+    result = CliRunner().invoke(main, ["check", "--no-diff"])
+
+    assert result.exit_code == 1
+    assert "  - B" not in result.output
+    assert "Use --diff" in result.output
+
+
+def test_check_explicit_config_changes_real_behaviour(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    _files(tmp_path, "A=1\nB=2\n", "A=x\n")
+    Path("ci.toml").write_text("[check]\ndiff = true\n", encoding="utf-8")
+
+    result = CliRunner().invoke(main, ["--config", "ci.toml", "check"])
+
+    assert result.exit_code == 1
+    assert "  - B" in result.output
+
+
+def test_check_pyproject_config_changes_real_behaviour(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    _files(tmp_path, "A=1\nB=2\n", "A=x\n")
+    Path("pyproject.toml").write_text(
+        "[tool.envstencil.check]\ndiff = true\n", encoding="utf-8"
+    )
+
+    result = CliRunner().invoke(main, ["check"])
+
+    assert result.exit_code == 1
+    assert "  - B" in result.output
+
+
+def test_check_user_config_changes_real_behaviour(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    cfg = tmp_path / "xdg" / "envstencil" / "config.toml"
+    cfg.parent.mkdir(parents=True)
+    cfg.write_text("[check]\ndiff = true\n", encoding="utf-8")
+    _files(tmp_path, "A=1\nB=2\n", "A=x\n")
+
+    result = CliRunner().invoke(main, ["check"])
+
+    assert result.exit_code == 1
+    assert "  - B" in result.output
+
+
+def test_check_no_config_keeps_default_behaviour(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    _files(tmp_path, "A=1\nB=2\n", "A=x\n")
+
+    result = CliRunner().invoke(main, ["check"])
+
+    assert result.exit_code == 1
+    assert "Use --diff" in result.output
+    assert "  - B" not in result.output
+
+
+# --- generate + config integration (milestone 4) -------------
+
+
+def test_generate_uses_config_files_as_defaults(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    Path(".env.prod").write_text("A=secret\n", encoding="utf-8")
+    Path(".envstencil.toml").write_text(
+        '[global]\nfile1 = ".env.prod"\nfile2 = "out.example"\n',
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(main, ["generate"])
+
+    assert result.exit_code == 0
+    assert (
+        Path("out.example").read_text(encoding="utf-8")
+        == "A=your_value_here\n"
+    )
+    assert not Path(".env.example").exists()
+
+
+def test_generate_explicit_source_beats_config(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    Path(".env").write_text("A=secret\n", encoding="utf-8")
+    Path(".env.prod").write_text("Z=secret\n", encoding="utf-8")
+    Path(".envstencil.toml").write_text(
+        '[global]\nfile1 = ".env.prod"\nfile2 = "out.example"\n',
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(main, ["generate", ".env"])
+
+    assert result.exit_code == 0
+    assert (
+        Path(".env.example").read_text(encoding="utf-8")
+        == "A=your_value_here\n"
+    )
+
+
+def test_generate_config_force_true_overwrites(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    Path(".env").write_text("A=secret\n", encoding="utf-8")
+    Path(".env.example").write_text("velho\n", encoding="utf-8")
+    Path(".envstencil.toml").write_text(
+        "[generate]\nforce = true\n", encoding="utf-8"
+    )
+
+    result = CliRunner().invoke(main, ["generate"])
+
+    assert result.exit_code == 0
+    assert (
+        Path(".env.example").read_text(encoding="utf-8")
+        == "A=your_value_here\n"
+    )
+
+
+def test_generate_config_force_false_aborts_on_existing(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    Path(".env").write_text("A=secret\n", encoding="utf-8")
+    Path(".env.example").write_text("velho\n", encoding="utf-8")
+    Path(".envstencil.toml").write_text(
+        "[generate]\nforce = false\n", encoding="utf-8"
+    )
+
+    result = CliRunner().invoke(main, ["generate"])
+
+    assert result.exit_code != 0
+    assert Path(".env.example").read_text(encoding="utf-8") == "velho\n"
+
+
+def test_generate_cli_force_beats_config_false(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    Path(".env").write_text("A=secret\n", encoding="utf-8")
+    Path(".env.example").write_text("velho\n", encoding="utf-8")
+    Path(".envstencil.toml").write_text(
+        "[generate]\nforce = false\n", encoding="utf-8"
+    )
+
+    result = CliRunner().invoke(main, ["generate", "--force"])
+
+    assert result.exit_code == 0
+    assert (
+        Path(".env.example").read_text(encoding="utf-8")
+        == "A=your_value_here\n"
+    )
+
+
+def test_generate_cli_no_force_beats_config_true(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    Path(".env").write_text("A=secret\n", encoding="utf-8")
+    Path(".env.example").write_text("velho\n", encoding="utf-8")
+    Path(".envstencil.toml").write_text(
+        "[generate]\nforce = true\n", encoding="utf-8"
+    )
+
+    result = CliRunner().invoke(main, ["generate", "--no-force"])
+
+    assert result.exit_code != 0
+    assert Path(".env.example").read_text(encoding="utf-8") == "velho\n"
+
+
+def test_generate_explicit_config_changes_real_behaviour(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    Path(".env").write_text("A=secret\n", encoding="utf-8")
+    Path(".env.example").write_text("velho\n", encoding="utf-8")
+    Path("ci.toml").write_text("[generate]\nforce = true\n", encoding="utf-8")
+
+    result = CliRunner().invoke(main, ["--config", "ci.toml", "generate"])
+
+    assert result.exit_code == 0
+    assert (
+        Path(".env.example").read_text(encoding="utf-8")
+        == "A=your_value_here\n"
+    )
+
+
+def test_generate_pyproject_config_changes_real_behaviour(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    Path(".env").write_text("A=secret\n", encoding="utf-8")
+    Path(".env.example").write_text("velho\n", encoding="utf-8")
+    Path("pyproject.toml").write_text(
+        "[tool.envstencil.generate]\nforce = true\n", encoding="utf-8"
+    )
+
+    result = CliRunner().invoke(main, ["generate"])
+
+    assert result.exit_code == 0
+    assert (
+        Path(".env.example").read_text(encoding="utf-8")
+        == "A=your_value_here\n"
+    )
+
+
+def test_generate_user_config_changes_real_behaviour(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    cfg = tmp_path / "xdg" / "envstencil" / "config.toml"
+    cfg.parent.mkdir(parents=True)
+    cfg.write_text("[generate]\nforce = true\n", encoding="utf-8")
+    Path(".env").write_text("A=secret\n", encoding="utf-8")
+    Path(".env.example").write_text("velho\n", encoding="utf-8")
+
+    result = CliRunner().invoke(main, ["generate"])
+
+    assert result.exit_code == 0
+    assert (
+        Path(".env.example").read_text(encoding="utf-8")
+        == "A=your_value_here\n"
+    )
+
+
+def test_generate_no_config_keeps_default_behaviour(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    Path(".env").write_text("A=secret\n", encoding="utf-8")
+    Path(".env.example").write_text("velho\n", encoding="utf-8")
+
+    result = CliRunner().invoke(main, ["generate"])
+
+    assert result.exit_code != 0
+    assert Path(".env.example").read_text(encoding="utf-8") == "velho\n"
+
+
+# --- full precedence (milestone 4) --------------------------
+
+
+def test_full_precedence_cli_beats_every_config_layer_check(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    user = tmp_path / "xdg" / "envstencil" / "config.toml"
+    user.parent.mkdir(parents=True)
+    user.write_text("[check]\ndiff = false\n", encoding="utf-8")
+    Path("pyproject.toml").write_text(
+        "[tool.envstencil.check]\ndiff = true\n", encoding="utf-8"
+    )
+    Path(".envstencil.toml").write_text(
+        "[check]\ndiff = false\n", encoding="utf-8"
+    )
+    Path("ci.toml").write_text("[check]\ndiff = true\n", encoding="utf-8")
+    _files(tmp_path, "A=1\nB=2\n", "A=x\n")
+
+    # ci.toml would give diff=true, but --no-diff (CLI) wins -> summary only
+    result = CliRunner().invoke(
+        main, ["--config", "ci.toml", "check", "--no-diff"]
+    )
+
+    assert result.exit_code == 1
+    assert "  - B" not in result.output
+    assert "Use --diff" in result.output
+
+
+def test_full_precedence_cli_beats_every_config_layer_generate(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    user = tmp_path / "xdg" / "envstencil" / "config.toml"
+    user.parent.mkdir(parents=True)
+    user.write_text("[generate]\nforce = true\n", encoding="utf-8")
+    Path("pyproject.toml").write_text(
+        "[tool.envstencil.generate]\nforce = false\n", encoding="utf-8"
+    )
+    Path(".envstencil.toml").write_text(
+        "[generate]\nforce = true\n", encoding="utf-8"
+    )
+    Path("ci.toml").write_text("[generate]\nforce = true\n", encoding="utf-8")
+    Path(".env").write_text("A=secret\n", encoding="utf-8")
+    Path(".env.example").write_text("velho\n", encoding="utf-8")
+
+    # every layer up to ci.toml says force=true, but --no-force (CLI) wins
+    result = CliRunner().invoke(
+        main, ["--config", "ci.toml", "generate", "--no-force"]
+    )
+
+    assert result.exit_code != 0
+    assert Path(".env.example").read_text(encoding="utf-8") == "velho\n"
