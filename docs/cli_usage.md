@@ -111,18 +111,37 @@ de ser copiada para o `.env.example`.
 
 ## Escolhendo origem e destino
 
-```bash
-# origem diferente do .env padrão
-{{ commands.run }} generate .env.production
+O `generate` aceita até dois argumentos posicionais, com a mesma estrutura do
+`check`:
 
-# destino explícito
-{{ commands.run }} generate .env.production -o .env.production.example
+```bash
+{{ commands.run }} generate                       # arquivos da configuração
+{{ commands.run }} generate FILE1                 # FILE1  e  FILE1 + ".example"
+{{ commands.run }} generate FILE1 FILE2           # exatamente FILE1 e FILE2
 ```
 
-Sem `-o`, o destino é `<origem>.example` no mesmo diretório
-(`.env` → `.env.example`). Quando **nem** a origem **nem** o `-o` são
-informados, os dois vêm da configuração (ver **Configuração**, abaixo; padrão
-`.env` e `.env.example`).
+- **Sem argumento:** origem e destino vêm da configuração (padrão `.env` e
+  `.env.example` — ver **Configuração**).
+- **Um argumento:** o destino é o primeiro + `.example`, no mesmo diretório
+  (`.env.production` → `.env.production.example`); o `file2` da configuração
+  **não** é usado.
+- **Dois argumentos:** usa exatamente esses dois caminhos — nenhuma convenção
+  de sufixo nem valor de configuração é aplicado.
+
+Compatibilidade: `-o` / `--output` continua sendo uma forma alternativa de
+informar o segundo arquivo. Não pode ser combinado com `FILE2` (erro de uso).
+A precedência do destino é: `FILE2` posicional > `--output` > `FILE1.example`
+> configuração.
+
+```bash
+{{ commands.run }} generate .env.production
+{{ commands.run }} generate .env.production .env.production.example
+{{ commands.run }} generate .env.production .env.production.example --force
+{{ commands.run }} generate .env.production --output custom.example
+```
+
+Caminhos e comportamento (`--force` / `--append` / `[generate].behaviour`)
+são resolvidos de forma independente.
 
 ## Placeholder customizado
 

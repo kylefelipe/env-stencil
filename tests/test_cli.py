@@ -672,6 +672,168 @@ def test_generate_explicit_source_beats_config(
     )
 
 
+# --- generate [FILE1] [FILE2] interface (milestone 7) --------
+
+
+def test_generate_zero_args_uses_defaults(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    Path(".env").write_text("A=secret\n", encoding="utf-8")
+
+    result = CliRunner().invoke(main, ["generate"])
+
+    assert result.exit_code == 0
+    assert (
+        Path(".env.example").read_text(encoding="utf-8")
+        == "A=your_value_here\n"
+    )
+
+
+def test_generate_zero_args_uses_config_files(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    Path(".env.production").write_text("A=secret\n", encoding="utf-8")
+    Path(".envstencil.toml").write_text(
+        '[global]\nfile1 = ".env.production"\n'
+        'file2 = ".env.production.example"\n',
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(main, ["generate"])
+
+    assert result.exit_code == 0
+    assert (
+        Path(".env.production.example").read_text(encoding="utf-8")
+        == "A=your_value_here\n"
+    )
+    assert not Path(".env.example").exists()
+
+
+def test_generate_one_arg_derives_example_suffix(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    Path("custom.env").write_text("A=secret\n", encoding="utf-8")
+
+    result = CliRunner().invoke(main, ["generate", "custom.env"])
+
+    assert result.exit_code == 0
+    assert (
+        Path("custom.env.example").read_text(encoding="utf-8")
+        == "A=your_value_here\n"
+    )
+
+
+def test_generate_one_arg_ignores_config_file2(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    Path("custom.env").write_text("A=secret\n", encoding="utf-8")
+    Path(".envstencil.toml").write_text(
+        '[global]\nfile2 = "configured.example"\n', encoding="utf-8"
+    )
+
+    result = CliRunner().invoke(main, ["generate", "custom.env"])
+
+    assert result.exit_code == 0
+    assert Path("custom.env.example").exists()
+    assert not Path("configured.example").exists()
+
+
+def test_generate_two_args_used_exactly(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    Path("a.env").write_text("A=secret\n", encoding="utf-8")
+    Path(".envstencil.toml").write_text(
+        '[global]\nfile1 = ".env.cfg"\nfile2 = ".env.cfg.example"\n',
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(main, ["generate", "a.env", "b.example"])
+
+    assert result.exit_code == 0
+    assert (
+        Path("b.example").read_text(encoding="utf-8") == "A=your_value_here\n"
+    )
+    assert not Path("a.env.example").exists()
+    assert not Path(".env.cfg.example").exists()
+
+
+def test_generate_output_option_still_works(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    Path("a.env").write_text("A=secret\n", encoding="utf-8")
+
+    result = CliRunner().invoke(
+        main, ["generate", "a.env", "--output", "b.example"]
+    )
+
+    assert result.exit_code == 0
+    assert (
+        Path("b.example").read_text(encoding="utf-8") == "A=your_value_here\n"
+    )
+    assert not Path("a.env.example").exists()
+
+
+def test_generate_file2_and_output_conflict(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    Path("a.env").write_text("A=secret\n", encoding="utf-8")
+
+    result = CliRunner().invoke(
+        main,
+        ["generate", "a.env", "b.example", "--output", "c.example"],
+    )
+
+    assert result.exit_code == 2
+    assert "FILE2" in result.output and "--output" in result.output
+    assert not Path("b.example").exists()
+    assert not Path("c.example").exists()
+
+
+def test_generate_one_arg_with_config_behaviour_append(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    Path("custom.env").write_text("A=1\nNEW=2\n", encoding="utf-8")
+    Path("custom.env.example").write_text(
+        "A=your_value_here\n", encoding="utf-8"
+    )
+    Path(".envstencil.toml").write_text(
+        '[generate]\nbehaviour = "append"\n', encoding="utf-8"
+    )
+
+    result = CliRunner().invoke(main, ["generate", "custom.env"])
+
+    assert result.exit_code == 0
+    assert "+ NEW" in result.output
+    assert Path("custom.env.example").read_text(encoding="utf-8") == (
+        "A=your_value_here\n\nNEW=your_value_here\n"
+    )
+
+
+def test_generate_two_args_with_cli_force_beats_config_append(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    Path("a.env").write_text("A=secret\n", encoding="utf-8")
+    Path("b.example").write_text("velho\n", encoding="utf-8")
+    Path(".envstencil.toml").write_text(
+        '[generate]\nbehaviour = "append"\n', encoding="utf-8"
+    )
+
+    result = CliRunner().invoke(
+        main, ["generate", "a.env", "b.example", "--force"]
+    )
+
+    assert result.exit_code == 0
+    assert (
+        Path("b.example").read_text(encoding="utf-8") == "A=your_value_here\n"
+    )
+
+
 def test_generate_config_behaviour_force_overwrites(
     tmp_path: Path, monkeypatch
 ) -> None:

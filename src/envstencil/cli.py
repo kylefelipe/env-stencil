@@ -106,25 +106,31 @@ def _resolve_generate_behaviour(
 
 def _resolve_generate_inputs(
     config: EnvStencilConfig,
-    source: Path | None,
-    destination: Path | None,
+    file1: Path | None,
+    file2: Path | None,
+    output: Path | None,
     force: bool,
     append: bool,
 ) -> tuple[Path, Path, GenerateBehaviour]:
     """Layer explicit CLI values over the resolved `[generate]`/`[global]`.
 
-    Rules: an explicit `source` wins over config; an explicit `-o/--output`
-    wins over everything, otherwise an explicit `source` derives
-    `<source>.example` (config's second file is *not* mixed in), and only a
-    fully omitted pair falls back to the configured files. The behaviour is
-    the configured one unless `--force` / `--append` override it.
+    Same shape as `check`: `FILE1`/`FILE2` are positional, `-o/--output` is
+    the compatible alias for the second file. Source precedence: explicit
+    `FILE1` over config. Destination precedence: explicit `FILE2` > explicit
+    `--output` > `FILE1` + ".example" (config's second file is *not* mixed
+    in) > configured file. Only a fully omitted pair falls back to the
+    configured files. The behaviour is the configured one unless `--force` /
+    `--append` override it. The caller has already rejected `FILE2` +
+    `--output` together.
     """
     resolved = resolve_generate_config(config)
-    src = source if source is not None else resolved.file1
-    if destination is not None:
-        out = destination
-    elif source is not None:
-        out = source.parent / f"{source.name}.example"
+    src = file1 if file1 is not None else resolved.file1
+    if file2 is not None:
+        out = file2
+    elif output is not None:
+        out = output
+    elif file1 is not None:
+        out = file1.parent / f"{file1.name}.example"
     else:
         out = resolved.file2
     behaviour = _resolve_generate_behaviour(resolved.behaviour, force, append)
@@ -133,7 +139,13 @@ def _resolve_generate_inputs(
 
 @main.command()
 @click.argument(
-    "source",
+    "file1",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
+    required=False,
+)
+@click.argument(
+    "file2",
     type=click.Path(dir_okay=False, path_type=Path),
     default=None,
     required=False,
@@ -141,10 +153,10 @@ def _resolve_generate_inputs(
 @click.option(
     "-o",
     "--output",
-    "destination",
+    "output",
     type=click.Path(dir_okay=False, path_type=Path),
     default=None,
-    help="Arquivo de saída (padrão: SOURCE + '.example', ou o da configuração).",
+    help="Forma alternativa de informar o segundo arquivo (compatibilidade).",
 )
 @click.option(
     "-p",
@@ -179,17 +191,23 @@ def _resolve_generate_inputs(
 @click.pass_context
 def generate(
     ctx: click.Context,
-    source: Path | None,
-    destination: Path | None,
+    file1: Path | None,
+    file2: Path | None,
+    output: Path | None,
     placeholder: str,
     force: bool,
     append: bool,
     collapse_blank_lines: bool,
 ) -> None:
-    """Gera um .env.example a partir de SOURCE.
+    """Gera um .env.example seguro a partir de um arquivo dotenv.
 
-    SOURCE e o destino, quando omitidos, vêm da configuração
-    (`[global]` / `[generate]`; padrão `.env` e `.env.example`).
+    \b
+    Sem argumentos:      arquivos da configuração (padrão .env / .env.example)
+    Com um argumento:    FILE1 e FILE1 + ".example"
+    Com dois argumentos: exatamente FILE1 e FILE2
+
+    `--output` (`-o`) é uma forma alternativa/compatível de informar o
+    segundo arquivo; não pode ser combinada com FILE2.
 
     \b
     O comportamento com um destino já existente vem de `[generate].behaviour`
@@ -200,9 +218,14 @@ def generate(
     --force e --append são overrides explícitos da CLI (vencem a config);
     não há flag para forçar `fail`.
     """
+    if file2 is not None and output is not None:
+        raise click.UsageError(
+            "não é possível informar FILE2 e --output ao mesmo tempo."
+        )
+
     try:
         src, out, behaviour = _resolve_generate_inputs(
-            ctx.obj["config"], source, destination, force, append
+            ctx.obj["config"], file1, file2, output, force, append
         )
     except ConfigError as exc:
         raise _InputError(str(exc)) from exc

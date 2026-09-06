@@ -46,14 +46,17 @@ Com o repositório já clonado: `pip install .` (ou `poetry install`).
 ## Uso
 
 ```bash
-# Gera .env.example a partir de .env no diretório atual
+# Gera .env.example a partir de .env no diretório atual (ou dos arquivos da config)
 envstencil generate
 
-# Especificar arquivo de origem e destino
-envstencil generate .env.production -o .env.production.example
+# Um argumento: FILE1 e FILE1 + ".example"
+envstencil generate .env.production
 
-# Ou, gerando a partir do .env padrão
-envstencil generate -o .env.production.example
+# Dois argumentos: exatamente esses caminhos
+envstencil generate .env.production .env.production.example
+
+# -o / --output continua como alternativa para o segundo arquivo (não com FILE2)
+envstencil generate .env.production -o custom.example
 
 # Placeholder customizado
 envstencil generate --placeholder "CHANGE_ME"

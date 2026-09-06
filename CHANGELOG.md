@@ -26,21 +26,24 @@ e este projeto segue o [Semantic Versioning](https://semver.org/lang/pt-BR/).
   arquivo de `--config` e a config global não participam dessa busca.
 - Opção global `--config CAMINHO` para apontar um arquivo de configuração TOML
   explícito (maior precedência entre os arquivos).
-- Flags `--no-force` (em `generate`) e `--no-diff` / `--no-dif` (em `check`)
-  para desligar explicitamente o comportamento vindo da configuração.
+- Flag `--no-diff` / `--no-dif` (em `check`) para forçar só o resumo mesmo
+  quando a configuração liga `[check].diff`.
 
 ### Changed
 
-- `envstencil check` agora aceita dois arquivos posicionais diretamente
-  (`envstencil check FILE1 FILE2`) e passa a comparar quaisquer dois arquivos
-  dotenv. Sem argumento continua sendo `.env` × `.env.example`; com um
-  argumento, `FILE1` × `FILE1.example`. A opção `--example` (`-e`) segue
-  funcionando como forma alternativa e não pode ser combinada com `FILE2`.
+- `envstencil check` e `envstencil generate` agora aceitam dois arquivos
+  posicionais diretamente (`FILE1 FILE2`), com a mesma semântica nos dois
+  comandos: sem argumento usa os arquivos da configuração (padrão `.env` /
+  `.env.example`); com um argumento, `FILE1` × `FILE1.example` (o `file2` da
+  configuração não é misturado); com dois, exatamente esses caminhos. Em
+  `check`, `--example` (`-e`) e, em `generate`, `-o` / `--output` seguem como
+  forma compatível de informar o segundo arquivo e não podem ser combinados
+  com `FILE2`.
 - `generate` e `check` passam a usar os valores da configuração como padrão de
-  origem/destino, de `--force` e de `--diff` quando os respectivos argumentos
-  ou flags não são informados. Sem nenhum arquivo de configuração, o
-  comportamento é o mesmo de antes (`.env` / `.env.example`, sem `--force`, sem
-  `--diff`).
+  origem/destino, do comportamento do `generate` (`[generate].behaviour`) e de
+  `--diff` quando os respectivos argumentos/flags não são informados. Sem
+  nenhum arquivo de configuração, o comportamento é o mesmo de antes (`.env` /
+  `.env.example`, `behaviour = "fail"`, sem `--diff`).
 
 ## [0.3.0] - 2026-09-01
 
