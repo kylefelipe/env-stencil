@@ -83,9 +83,19 @@ def load_toml(path: Path) -> dict[str, Any]:
     """Read `path` as TOML with the standard library and return the raw data.
 
     Kept separate from `parse_config` so most tests can feed dicts directly.
+
+    A syntax error in the file is re-raised as `ConfigError` (with the
+    parser's message and the path). Filesystem errors — `FileNotFoundError`,
+    `PermissionError`, `IsADirectoryError`, … — are left to propagate: a file
+    that can't be read is a different problem from a file with invalid TOML.
     """
-    with open(path, "rb") as handle:
-        return tomllib.load(handle)
+    with path.open("rb") as handle:
+        try:
+            return tomllib.load(handle)
+        except tomllib.TOMLDecodeError as exc:
+            raise ConfigError(
+                f"Invalid TOML configuration in {path}: {exc}"
+            ) from exc
 
 
 def _as_bool(section: str, key: str, value: Any) -> bool:

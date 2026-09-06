@@ -1,3 +1,4 @@
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -163,6 +164,31 @@ def test_load_toml_reads_file(tmp_path: Path) -> None:
     assert data == {"global": {"file1": ".env"}, "check": {"diff": True}}
     assert cfg.global_.file1 == Path(".env")
     assert cfg.check.diff is True
+
+
+def test_load_toml_invalid_syntax_raises_config_error(tmp_path: Path) -> None:
+    path = tmp_path / "broken.toml"
+    path.write_text("[check\ndiff = true\n", encoding="utf-8")
+
+    with pytest.raises(ConfigError) as excinfo:
+        load_toml(path)
+
+    assert "broken.toml" in str(excinfo.value)
+    assert isinstance(excinfo.value.__cause__, tomllib.TOMLDecodeError)
+
+
+def test_load_toml_missing_file_propagates_filesystem_error(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(FileNotFoundError):
+        load_toml(tmp_path / "nao-existe.toml")
+
+
+def test_load_toml_directory_propagates_filesystem_error(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises((IsADirectoryError, PermissionError)):
+        load_toml(tmp_path)
 
 
 # --- merge -----------------------------------------------------

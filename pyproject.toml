@@ -15,7 +15,6 @@ authors = [
 keywords = ["dotenv", "env", "environment", "template", "security"]
 classifiers = [
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
@@ -67,7 +66,7 @@ line_length = 79
 
 [tool.black]
 line-length = 79
-target-version = ["py310"]
+target-version = ["py311"]
 
 [tool.pytest.ini_options]
 pythonpath = "."
